@@ -78,11 +78,11 @@ TEST RESULT
 	client_test.go:510: 
 		====================================================
 		case: 20480     hot:  4096(20%)    hot_access: 80% 
-		get: 84314    miss: 30514    hit_rate: 64% 
-		hot: 75771    miss: 23173    hit_rate: 69% 
+		 get: 84314    miss: 30514    hit_rate: 64% 
+		 hot: 75771    miss: 23173    hit_rate: 69% 
 		cached: 1819m(10187m  18%  -   2048m  89%)
-		hot: 1397m( 2039m  69%)    2804( 4096  68%)      
-		cold:  422m( 8147m   5%)    1015(16384   6%)      
+		   hot: 1397m( 2039m  69%)    2804( 4096  68%)      
+		  cold:  422m( 8147m   5%)    1015(16384   6%)      
 		====================================================
 	PASS
 	ok  	github.com/imchuncai/umem-cache-client-Go	513.549s
@@ -117,11 +117,11 @@ TEST RESULT
 	client_test.go:510: 
 		====================================================
 		case: 20480     hot:  4096(20%)    hot_access: 80% 
-		get: 84314    miss: 31285    hit_rate: 63% 
-		hot: 75771    miss: 24030    hit_rate: 68% 
+		 get: 84314    miss: 31285    hit_rate: 63% 
+		 hot: 75771    miss: 24030    hit_rate: 68% 
 		cached: 1902m(10187m  19%  -   2048m  93%)
-		hot: 1369m( 2039m  67%)    2759( 4096  67%)      
-		cold:  532m( 8147m   7%)    1070(16384   7%)      
+		   hot: 1369m( 2039m  67%)    2759( 4096  67%)      
+		  cold:  532m( 8147m   7%)    1070(16384   7%)      
 		====================================================
 	PASS
 	ok  	github.com/imchuncai/umem-cache-client-Go	389.307s
