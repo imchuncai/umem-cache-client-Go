@@ -35,7 +35,6 @@ const (
 	SET_FLAG_NON_BLOCK = setFlag(1 << 0)
 
 	DEL_FLAG_NON_BLOCK = delFlag(1 << 0)
-	DEL_FLAG_SET       = delFlag(1 << 1)
 )
 
 type Conn struct {
@@ -83,7 +82,6 @@ var (
 	ConnectErrKill     = errKill
 	GetOrSetErrNoMem   = errNoMem
 	SetErrNoMem        = errNoMem
-	DelForSetErrNoMem  = errNoMem
 
 	// client side error
 	ErrBadKeySize     = fmt.Errorf("key size out of limit: %d", KEY_SIZE_LIMIT)
@@ -317,7 +315,7 @@ func (c *Conn) Del(key string, flag delFlag) DelResp {
 	return c.DelRecv()
 }
 
-func (c *Conn) xxxsetSend(val []byte) error {
+func (c *Conn) getSetSend(val []byte) error {
 	if val == nil {
 		var buf [1 + 8]byte
 		err := c.write(buf[:])
@@ -355,7 +353,7 @@ func (c *Conn) xxxsetSend(val []byte) error {
 	return nil
 }
 
-func (c *Conn) xxxsetRecv() error {
+func (c *Conn) getSetRecv() error {
 	var buf [1]byte
 	err := c.readFull(buf[:])
 	if err != nil {
@@ -364,21 +362,21 @@ func (c *Conn) xxxsetRecv() error {
 	return errnoError(errno(buf[0]))
 }
 
-func (c *Conn) xxxset(key string, fallbackGet FallbackGetFunc) (val []byte, err error) {
+func (c *Conn) getSet(key string, fallbackGet FallbackGetFunc) (val []byte, err error) {
 	val, err = fallbackGet((key))
 	if err != nil {
 		// too much error, can't handle
-		c.xxxsetSend(nil)
-		c.xxxsetRecv()
+		c.getSetSend(nil)
+		c.getSetRecv()
 		return nil, fmt.Errorf("%w: %w", ErrBadFallbackGet, err)
 	}
 
-	err = c.xxxsetSend(val)
+	err = c.getSetSend(val)
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.xxxsetRecv()
+	err = c.getSetRecv()
 	if err != nil {
 		return nil, err
 	}
@@ -386,17 +384,9 @@ func (c *Conn) xxxset(key string, fallbackGet FallbackGetFunc) (val []byte, err 
 }
 
 func (c *Conn) GetSet(key string, fallbackGet FallbackGetFunc) GetResp {
-	val, err := c.xxxset(key, fallbackGet)
+	val, err := c.getSet(key, fallbackGet)
 	if err != nil {
 		return GetResp{false, nil, fmt.Errorf("umem-cache: get-set failed: %w", err)}
 	}
 	return GetResp{false, val, nil}
-}
-
-func (c *Conn) DelSet(key string, fallbackGet FallbackGetFunc) DelResp {
-	_, err := c.xxxset(key, fallbackGet)
-	if err != nil {
-		return DelResp{false, fmt.Errorf("umem-cache: del-set failed: %w", err)}
-	}
-	return DelResp{false, nil}
 }

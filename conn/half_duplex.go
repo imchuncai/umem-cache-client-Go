@@ -41,19 +41,3 @@ func (c *HalfDuplexConn) GetOrSet(key string, fallbackGet umem_cache.FallbackGet
 	}
 	return c.conn.GetSet(key, fallbackGet)
 }
-
-func (c *HalfDuplexConn) DelForSet(key string, fallbackGet umem_cache.FallbackGetFunc, nonBlock bool) umem_cache.DelResp {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	var resp umem_cache.DelResp
-	if nonBlock {
-		resp = c.conn.Del(key, umem_cache.DEL_FLAG_SET|umem_cache.DEL_FLAG_NON_BLOCK)
-	} else {
-		resp = c.conn.Del(key, umem_cache.DEL_FLAG_SET)
-	}
-	if resp.Err != nil || (nonBlock && resp.WillBlock) {
-		return resp
-	}
-	return c.conn.DelSet(key, fallbackGet)
-}

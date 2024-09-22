@@ -88,14 +88,6 @@ func (c *MixConn) Del(key string) error {
 	return resp.Err
 }
 
-func (c *MixConn) DelForSet(key string, fallbackGet umem_cache.FallbackGetFunc) error {
-	resp := c.halfNB.DelForSet(key, fallbackGet, true)
-	if resp.Err == nil && resp.WillBlock {
-		resp = c.half.DelForSet(key, fallbackGet, false)
-	}
-	return resp.Err
-}
-
 func (s *MixConn) Close() {
 	s.fullNB.Close()
 	s.full.Close()

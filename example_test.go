@@ -3,15 +3,8 @@ package client
 import (
 	"fmt"
 	"log"
+	"sync"
 )
-
-func exampleFallbackGet(key string) ([]byte, error) {
-	return []byte("umem-cache"), nil
-}
-
-func exampleNilFallbackGet(key string) ([]byte, error) {
-	return nil, nil
-}
 
 func ExampleClient_GetOrSet() {
 	service, _ := globalSyncService.GetService()
@@ -23,7 +16,10 @@ func ExampleClient_GetOrSet() {
 	defer client.Close()
 
 	key := "hello"
-	val, err := client.GetOrSet(key, exampleFallbackGet)
+	fallbackGet := func(key string) ([]byte, error) {
+		return []byte("umem-cache"), nil
+	}
+	val, err := client.GetOrSet(key, fallbackGet)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -31,7 +27,10 @@ func ExampleClient_GetOrSet() {
 	// Output: umem-cache
 }
 
-func ExampleClient_DelForSet() {
+// When we update the backend database, we will not update the cache at the
+// same time. Instead, we will delete the cache before updating and cache it
+// again the next time we retrieve it.
+func ExampleClient_Set() {
 	service, _ := globalSyncService.GetService()
 
 	client, err := New(service, &globalSyncService)
@@ -40,29 +39,25 @@ func ExampleClient_DelForSet() {
 	}
 	defer client.Close()
 
-	key := "hello"
-	err = client.DelForSet(key, exampleFallbackGet)
-	if err != nil {
-		log.Fatal(err)
+	type db struct {
+		mu  sync.RWMutex
+		key string
 	}
 
-	val, err := client.Get(key)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(string(val))
+	db1 := db{key: "hello"}
 
-	err = client.DelForSet(key, exampleNilFallbackGet)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// make sure the key will not cached during the update or delete
+	db1.mu.Lock()
+	defer db1.mu.Unlock()
 
-	val, err = client.Get(key)
+	client.Del(db1.key)
+	// update or delete the key on the database
+
+	val, err := client.Get(db1.key)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("%#v\n", val)
 	// Output:
-	// umem-cache
 	// []byte(nil)
 }

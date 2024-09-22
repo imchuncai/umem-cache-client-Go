@@ -164,8 +164,7 @@ func (c *Client) secondChanceDo(key string, f func(conn *mix_conn.MixConn) error
 		errors.Is(err, umem_cache.ErrBadKeySize) ||
 		errors.Is(err, umem_cache.ErrBadFallbackGet) ||
 		errors.Is(err, umem_cache.GetOrSetErrNoMem) ||
-		errors.Is(err, umem_cache.SetErrNoMem) ||
-		errors.Is(err, umem_cache.DelForSetErrNoMem) {
+		errors.Is(err, umem_cache.SetErrNoMem) {
 		return err
 	}
 
@@ -202,15 +201,8 @@ func (c *Client) Set(key string, val []byte) error {
 	})
 }
 
-// use DelForSet() instead is recommended
 func (c *Client) Del(key string) error {
 	return c.secondChanceDo(key, func(s *mix_conn.MixConn) error {
 		return s.Del(key)
-	})
-}
-
-func (c *Client) DelForSet(key string, fallbackGet umem_cache.FallbackGetFunc) error {
-	return c.secondChanceDo(key, func(s *mix_conn.MixConn) error {
-		return s.DelForSet(key, fallbackGet)
 	})
 }

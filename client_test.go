@@ -272,21 +272,6 @@ func badGetOrSet(t *testing.T, client *Client, tc TestCase) {
 	}
 }
 
-func delForSet(t *testing.T, client *Client, tc TestCase) {
-	err := client.DelForSet(tc.key, fallbackGet(tc))
-	if err != nil {
-		t.Fatalf("got error: %v, test case: %v", err, tc)
-	}
-}
-
-func badDelForSet(t *testing.T, client *Client, tc TestCase) {
-	err := client.DelForSet(tc.key, badFallbackGet)
-	if !errors.Is(err, errIntentionally) {
-		t.Fatalf("want error: %v, got: %v, test case: %v",
-			errIntentionally, err, tc)
-	}
-}
-
 func TestGet(t *testing.T) {
 	client := newTestClient(t)
 	defer client.Close()
@@ -337,31 +322,6 @@ func TestBadGetOrSet(t *testing.T) {
 	})
 }
 
-func TestDelForSet(t *testing.T) {
-	client := newTestClient(t)
-	defer client.Close()
-
-	fuzz(func(tc TestCase, randV []byte) {
-		tc2 := TestCase{tc.key, randV}
-		set(t, client, tc)
-		delForSet(t, client, tc2)
-		get(t, client, tc2)
-	})
-}
-
-func TestBadDelForSet(t *testing.T) {
-	client := newTestClient(t)
-	defer client.Close()
-
-	fuzz(func(tc TestCase, randV []byte) {
-		tc2 := TestCase{tc.key, randV}
-		set(t, client, tc)
-		badDelForSet(t, client, tc2)
-		tc2.val = nil
-		get(t, client, tc2)
-	})
-}
-
 func TestReconnect(t *testing.T) {
 	client := newTestClient(t)
 	defer client.Close()
@@ -391,11 +351,16 @@ func TestDiscardValue(t *testing.T) {
 		}
 		defer c1.Close()
 
-		err = c1.DelSend(tc.key, umem_cache.DEL_FLAG_SET)
+		resp1 := c1.Del(tc.key, 0)
+		if resp1.Err != nil {
+			t.Fatalf("got error: %v", resp1.Err)
+		}
+
+		err = c1.GetSend(tc.key, umem_cache.GET_FLAG_SET_ON_MISS)
 		if err != nil {
 			t.Fatalf("got error: %v", err)
 		}
-		resp1 := c1.DelRecv()
+		resp2 := c1.GetRecv()
 		if resp1.Err != nil {
 			t.Fatalf("got error: %v", resp1.Err)
 		}
@@ -415,18 +380,19 @@ func TestDiscardValue(t *testing.T) {
 			t.Fatalf("want WillBlock: true, got: false")
 		}
 
-		resp2 := c1.DelSet(tc.key, func(key string) (val []byte, err error) {
+		// test the nil value
+		resp3 := c1.GetSet(tc.key, func(key string) (val []byte, err error) {
 			return nil, nil
 		})
-		if resp2.Err != nil {
-			t.Fatalf("got error: %v", resp2.Err)
-		}
-
-		resp3 := c1.Get(tc.key, 0)
 		if resp3.Err != nil {
 			t.Fatalf("got error: %v", resp2.Err)
 		}
-		if resp3.Val != nil {
+
+		resp4 := c1.Get(tc.key, 0)
+		if resp4.Err != nil {
+			t.Fatalf("got error: %v", resp2.Err)
+		}
+		if resp4.Val != nil {
 			t.Fatalf("want nil val, got %d", len(resp3.Val))
 		}
 	})
