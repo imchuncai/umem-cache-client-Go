@@ -82,9 +82,6 @@ func (c *MixConn) Set(key string, val []byte) error {
 
 func (c *MixConn) Del(key string) error {
 	resp := c.fullNB.Del(key, true)
-	if resp.Err == nil && resp.WillBlock {
-		resp = c.full.Del(key, false)
-	}
 	return resp.Err
 }
 

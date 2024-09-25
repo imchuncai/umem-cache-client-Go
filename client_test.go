@@ -351,7 +351,7 @@ func TestDiscardValue(t *testing.T) {
 		}
 		defer c1.Close()
 
-		resp1 := c1.Del(tc.key, 0)
+		resp1 := c1.Del(tc.key)
 		if resp1.Err != nil {
 			t.Fatalf("got error: %v", resp1.Err)
 		}

@@ -26,15 +26,12 @@ const (
 
 type getFlag byte
 type setFlag byte
-type delFlag byte
 
 const (
 	GET_FLAG_NON_BLOCK   = getFlag(1 << 0)
 	GET_FLAG_SET_ON_MISS = getFlag(1 << 1)
 
 	SET_FLAG_NON_BLOCK = setFlag(1 << 0)
-
-	DEL_FLAG_NON_BLOCK = delFlag(1 << 0)
 )
 
 type Conn struct {
@@ -53,8 +50,7 @@ type SetResp struct {
 }
 
 type DelResp struct {
-	WillBlock bool
-	Err       error
+	Err error
 }
 
 type errno byte
@@ -276,13 +272,13 @@ func (c *Conn) SetRecv() SetResp {
 	return SetResp{false, nil}
 }
 
-func (c *Conn) DelSend(key string, flag delFlag) error {
+func (c *Conn) DelSend(key string) error {
 	err := checkKey(key)
 	if err != nil {
 		return fmt.Errorf("umem-cache: del failed: %w", err)
 	}
 
-	err = c.sendCMD(_CMD_DEL, byte(flag), key, nil)
+	err = c.sendCMD(_CMD_DEL, 0, key, nil)
 	if err != nil {
 		return fmt.Errorf("umem-cache: del out cmd failed: %w", err)
 	}
@@ -293,24 +289,20 @@ func (c *Conn) DelRecv() DelResp {
 	var buf [1]byte
 	err := c.readFull(buf[:])
 	if err != nil {
-		return DelResp{false, fmt.Errorf("umem-cache: del in errno failed: %w", err)}
-	}
-
-	if errno(buf[0]) == _E_WILL_BLOCK {
-		return DelResp{true, nil}
+		return DelResp{fmt.Errorf("umem-cache: del in errno failed: %w", err)}
 	}
 
 	err = errnoError(errno(buf[0]))
 	if err != nil {
-		return DelResp{false, fmt.Errorf("umem-cache: del failed: %w", err)}
+		return DelResp{fmt.Errorf("umem-cache: del failed: %w", err)}
 	}
-	return DelResp{false, nil}
+	return DelResp{nil}
 }
 
-func (c *Conn) Del(key string, flag delFlag) DelResp {
-	err := c.DelSend(key, flag)
+func (c *Conn) Del(key string) DelResp {
+	err := c.DelSend(key)
 	if err != nil {
-		return DelResp{false, err}
+		return DelResp{err}
 	}
 	return c.DelRecv()
 }

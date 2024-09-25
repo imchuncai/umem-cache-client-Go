@@ -6,6 +6,10 @@ import (
 	"sync"
 )
 
+var exampleMu sync.Mutex
+var exampleKey = "hello"
+var exampleVal = []byte("umem-cache")
+
 func ExampleClient_GetOrSet() {
 	service, _ := globalSyncService.GetService()
 
@@ -15,11 +19,13 @@ func ExampleClient_GetOrSet() {
 	}
 	defer client.Close()
 
-	key := "hello"
 	fallbackGet := func(key string) ([]byte, error) {
-		return []byte("umem-cache"), nil
+		exampleMu.Lock()
+		defer exampleMu.Unlock()
+
+		return exampleVal, nil
 	}
-	val, err := client.GetOrSet(key, fallbackGet)
+	val, err := client.GetOrSet(exampleKey, fallbackGet)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -27,9 +33,6 @@ func ExampleClient_GetOrSet() {
 	// Output: umem-cache
 }
 
-// When we update the backend database, we will not update the cache at the
-// same time. Instead, we will delete the cache before updating and cache it
-// again the next time we retrieve it.
 func ExampleClient_Set() {
 	service, _ := globalSyncService.GetService()
 
@@ -39,21 +42,16 @@ func ExampleClient_Set() {
 	}
 	defer client.Close()
 
-	type db struct {
-		mu  sync.RWMutex
-		key string
-	}
-
-	db1 := db{key: "hello"}
-
 	// make sure the key will not cached during the update or delete
-	db1.mu.Lock()
-	defer db1.mu.Unlock()
+	exampleMu.Lock()
+	defer exampleMu.Unlock()
 
-	client.Del(db1.key)
+	client.Del(exampleKey)
 	// update or delete the key on the database
+	exampleVal = []byte("umem-cache")
+	// you can choose to re-cache immediately or at the next retrieval time
 
-	val, err := client.Get(db1.key)
+	val, err := client.Get(exampleKey)
 	if err != nil {
 		log.Fatal(err)
 	}

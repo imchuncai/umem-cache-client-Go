@@ -102,13 +102,7 @@ func (c *FullDuplexConn) Set(key string, val []byte, nonBlock bool) umem_cache.S
 func (c *FullDuplexConn) Del(key string, nonBlock bool) umem_cache.DelResp {
 	channel := make(chan umem_cache.DelResp, 1)
 	err := c.addCMD(
-		func() error {
-			if nonBlock {
-				return c.conn.DelSend(key, umem_cache.DEL_FLAG_NON_BLOCK)
-			} else {
-				return c.conn.DelSend(key, 0)
-			}
-		},
+		func() error { return c.conn.DelSend(key) },
 		func() { channel <- c.conn.DelRecv() },
 	)
 	if err != nil {
