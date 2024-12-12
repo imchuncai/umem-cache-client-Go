@@ -20,17 +20,13 @@ type Thread struct {
 	conns []*umem_cache.Conn
 }
 
-func New(address string, id uint32, version uint32, timeout time.Duration) (*Thread, error) {
-	conn, err := umem_cache.Dial(address, id, version, timeout)
-	if err != nil {
-		return nil, err
-	}
+func New(address string, id uint32, version uint32, timeout time.Duration) *Thread {
 	return &Thread{
 		address: address,
 		id:      id,
 		version: version,
-		conns:   []*umem_cache.Conn{conn},
-	}, nil
+		conns:   []*umem_cache.Conn{},
+	}
 }
 
 func (t *Thread) Close() {

@@ -54,12 +54,7 @@ func connect(s Server, timeout time.Duration) ([]*thread.Thread, error) {
 
 	threads := make([]*thread.Thread, len(s.Threads))
 	for i, t := range s.Threads {
-		var err error
-		threads[i], err = thread.New(t.Address, t.ThreadID, s.Version, timeout)
-		if err != nil {
-			closeThreads(threads)
-			return nil, err
-		}
+		threads[i] = thread.New(t.Address, t.ThreadID, s.Version, timeout)
 	}
 	return threads, nil
 }
