@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imchuncai/umem-cache-raft-client-Go/proto"
+	"github.com/imchuncai/umem-cache-client-Go/proto"
 )
 
 const (

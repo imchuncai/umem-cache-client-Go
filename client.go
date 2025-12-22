@@ -6,7 +6,7 @@ package client
 import (
 	"time"
 
-	"github.com/imchuncai/umem-cache-raft-client-Go/proto"
+	"github.com/imchuncai/umem-cache-client-Go/proto"
 )
 
 type Client struct {

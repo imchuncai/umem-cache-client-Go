@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
-src = ../umem-cache-raft
+src = ../umem-cache
 
 ifdef SRC
 	src = $(SRC)
