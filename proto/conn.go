@@ -75,7 +75,7 @@ func (c *Conn) communicateV(req net.Buffers, res []byte) error {
 	return nil
 }
 
-func Dial(deadline time.Time, address string, config *tls.Config, noDelay bool) (*Conn, error) {
+func Dial(deadline time.Time, address string, config *tls.Config) (*Conn, error) {
 	var c net.Conn
 	var err error
 	var tcp *net.TCPConn
@@ -98,12 +98,6 @@ func Dial(deadline time.Time, address string, config *tls.Config, noDelay bool) 
 	err = tcp.SetLinger(0)
 	if err != nil {
 		return nil, fmt.Errorf("set linger failed: %w", err)
-	}
-	if !noDelay {
-		err = tcp.SetNoDelay(false)
-		if err != nil {
-			return nil, fmt.Errorf("set linger failed: %w", err)
-		}
 	}
 	return &Conn{c}, nil
 }

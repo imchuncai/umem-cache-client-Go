@@ -17,6 +17,8 @@ type authority struct {
 
 	mu       sync.Mutex
 	requests *list.List
+	waitN    int
+	busy     bool
 }
 
 func newAuthority(conn *proto.AuthorityConn) *authority {
@@ -69,26 +71,35 @@ func (auth *authority) Close() {
 	auth.requests = nil
 }
 
-func (auth *authority) pushAuthority() (<-chan uint64, error) {
+func (auth *authority) pushAuthority() (<-chan uint64, int, error) {
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
 
 	if auth.__closed() {
-		return nil, errors.New("authority is closed")
+		return nil, 0, errors.New("authority is closed")
 	}
 
 	ch := make(chan uint64, 1)
 	auth.requests.PushBack(chan<- uint64(ch))
-	return ch, nil
+	auth.waitN++
+
+	if auth.busy {
+		return ch, 0, nil
+	}
+
+	auth.busy = true
+	n := auth.waitN
+	auth.waitN = 0
+	return ch, n, nil
 }
 
 func (auth *authority) RequestPermission(deadline time.Time) (<-chan uint64, error) {
-	ch, err := auth.pushAuthority()
+	ch, n, err := auth.pushAuthority()
 	if err != nil {
 		return nil, err
 	}
 
-	err = auth.conn.RequestPermission(deadline)
+	err = auth.conn.RequestPermission(deadline, n)
 	if err != nil {
 		auth.Close()
 		return nil, err
@@ -97,12 +108,12 @@ func (auth *authority) RequestPermission(deadline time.Time) (<-chan uint64, err
 	return ch, nil
 }
 
-func (auth *authority) receivedApproval(approval proto.Approval) {
+func (auth *authority) popAuthority(approval proto.Approval) int {
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
 
 	if auth.__closed() {
-		return
+		return 0
 	}
 
 	for range approval.Count {
@@ -110,5 +121,23 @@ func (auth *authority) receivedApproval(approval proto.Approval) {
 		auth.requests.Remove(element)
 		ch := element.Value.(chan<- uint64)
 		ch <- approval.Version
+	}
+
+	n := auth.waitN
+	if n > 0 {
+		auth.waitN = 0
+	} else {
+		auth.busy = false
+	}
+	return n
+}
+
+func (auth *authority) receivedApproval(approval proto.Approval) {
+	n := auth.popAuthority(approval)
+	if n > 0 {
+		err := auth.conn.RequestPermission(time.Time{}, n)
+		if err != nil {
+			auth.Close()
+		}
 	}
 }

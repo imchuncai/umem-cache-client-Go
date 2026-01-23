@@ -48,7 +48,7 @@ func AdminInitCluster(deadline time.Time, addresses []string, config *tls.Config
 
 	const wrapper = "init cluster failed: %w, you should restart all machines before retry"
 
-	conn, err := proto.Dial(deadline, addresses[0], config, true)
+	conn, err := proto.Dial(deadline, addresses[0], config)
 	if err != nil {
 		return fmt.Errorf("dial initial leader failed: %w", err)
 	}
@@ -141,7 +141,7 @@ func AdminChangeCluster(deadline time.Time, fromAddresses, toAddresses []string,
 		return err
 	}
 
-	conn, err := proto.Dial(deadline, leader, config, true)
+	conn, err := proto.Dial(deadline, leader, config)
 	if err != nil {
 		return fmt.Errorf("dial leader failed: %w", err)
 	}
@@ -195,7 +195,7 @@ func leaderRandom(deadline time.Time, addrs []string, config *tls.Config) (strin
 }
 
 func cluster(deadline time.Time, address string, config *tls.Config) (proto.Cluster, error) {
-	conn, err := proto.Dial(deadline, address, config, true)
+	conn, err := proto.Dial(deadline, address, config)
 	if err != nil {
 		return proto.Cluster{}, fmt.Errorf("dial:%s failed: %w", address, err)
 	}
@@ -238,7 +238,7 @@ func AdminLeaderCluster(deadline time.Time, addresses []string, config *tls.Conf
 }
 
 func AdminLeader(deadline time.Time, address string, config *tls.Config) (string, error) {
-	conn, err := proto.Dial(deadline, address, config, true)
+	conn, err := proto.Dial(deadline, address, config)
 	if err != nil {
 		return "", fmt.Errorf("dial failed: %w", err)
 	}

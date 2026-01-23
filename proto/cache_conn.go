@@ -26,7 +26,7 @@ type CacheConn struct {
 }
 
 func DialCache(deadline time.Time, address string, threadID uint32, config *tls.Config) (*CacheConn, error) {
-	conn, err := Dial(deadline, address, config, true)
+	conn, err := Dial(deadline, address, config)
 	if err != nil {
 		return nil, err
 	}

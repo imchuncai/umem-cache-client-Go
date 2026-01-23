@@ -14,7 +14,7 @@ type AuthorityConn struct {
 }
 
 func DialAuthority(deadline time.Time, address string, config *tls.Config) (*AuthorityConn, error) {
-	c, err := Dial(deadline, address, config, false)
+	c, err := Dial(deadline, address, config)
 	if err != nil {
 		return nil, err
 	}
@@ -42,12 +42,23 @@ func DialAuthority(deadline time.Time, address string, config *tls.Config) (*Aut
 	return &AuthorityConn{c}, nil
 }
 
-func (c *AuthorityConn) RequestPermission(deadline time.Time) error {
+func (c *AuthorityConn) RequestPermission(deadline time.Time, n int) error {
 	err := c.conn.setWriteDeadline(deadline)
 	if err != nil {
 		return err
 	}
-	return c.conn.write([]byte{1})
+
+	k := n / 255
+	buff := make([]byte, k, k+1)
+	for i := range k {
+		buff[i] = 255
+	}
+
+	n -= k * 255
+	if n > 0 {
+		buff = append(buff, byte(n))
+	}
+	return c.conn.write(buff)
 }
 
 type Approval struct {
