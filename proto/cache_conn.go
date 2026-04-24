@@ -4,6 +4,7 @@
 package proto
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
@@ -22,7 +23,8 @@ const (
 )
 
 type CacheConn struct {
-	conn *Conn
+	tlsBuffer *bufio.Writer
+	conn      *Conn
 }
 
 func DialCache(deadline time.Time, address string, threadID uint32, config *tls.Config) (*CacheConn, error) {
@@ -43,19 +45,42 @@ func DialCache(deadline time.Time, address string, threadID uint32, config *tls.
 		return nil, err
 	}
 
-	return &CacheConn{conn}, nil
+	var buff *bufio.Writer
+	if _, ok := conn.v.(*tls.Conn); ok {
+		buff = bufio.NewWriterSize(conn.v, 1<<14)
+	}
+
+	return &CacheConn{buff, conn}, nil
+}
+
+func (c *CacheConn) communicateV(req net.Buffers, res []byte) error {
+	if _, ok := c.conn.v.(*net.TCPConn); ok {
+		return c.conn.communicateV(req, res)
+	}
+
+	for _, buff := range req {
+		_, err := c.tlsBuffer.Write(buff)
+		if err != nil {
+			return fmt.Errorf("tls buffer write failed: %w", err)
+		}
+	}
+	err := c.tlsBuffer.Flush()
+	if err != nil {
+		return fmt.Errorf("tls buffer flush failed: %w", err)
+	}
+	return c.conn.read(res)
 }
 
 func (c *CacheConn) set(val []byte) error {
 	size := make([]byte, 8)
 	binary.BigEndian.PutUint64(size, uint64(len(val)))
 	res := make([]byte, 1)
-	return c.conn.communicateV(net.Buffers{size, val}, res)
+	return c.communicateV(net.Buffers{size, val}, res)
 }
 
 func (c *CacheConn) get(key []byte) (val []byte, err error) {
 	res := make([]byte, 8+1)
-	err = c.conn.communicateV(net.Buffers{{_CMD_GET_OR_SET, byte(len(key))}, key}, res)
+	err = c.communicateV(net.Buffers{{_CMD_GET_OR_SET, byte(len(key))}, key}, res)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +135,7 @@ func (c *CacheConn) Del(deadline time.Time, key []byte) error {
 	}
 
 	res := make([]byte, 1)
-	return c.conn.communicateV(net.Buffers{{_CMD_DEL, byte(len(key))}, key}, res)
+	return c.communicateV(net.Buffers{{_CMD_DEL, byte(len(key))}, key}, res)
 }
 
 func (c *CacheConn) Close() {
