@@ -116,6 +116,10 @@ func (c *CacheConn) GetOrSet(deadline time.Time, key []byte, get FallbackGetFunc
 		return val, nil
 	}
 
+	if get == nil {
+		return nil, fmt.Errorf("%w: nil", ErrFallbackGet)
+	}
+
 	val, err = get(key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFallbackGet, err)
