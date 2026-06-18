@@ -54,7 +54,7 @@ func DialCache(deadline time.Time, address string, threadID uint32, config *tls.
 }
 
 func (c *CacheConn) communicateV(req net.Buffers, res []byte) error {
-	if _, ok := c.conn.v.(*net.TCPConn); ok {
+	if c.tlsBuffer == nil {
 		return c.conn.communicateV(req, res)
 	}
 
@@ -74,7 +74,7 @@ func (c *CacheConn) communicateV(req net.Buffers, res []byte) error {
 func (c *CacheConn) set(val []byte) error {
 	size := make([]byte, 8)
 	binary.BigEndian.PutUint64(size, uint64(len(val)))
-	if _, ok := c.conn.v.(*net.TCPConn); ok {
+	if c.tlsBuffer == nil {
 		return c.conn.writev(net.Buffers{size, val})
 	}
 
