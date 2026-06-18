@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package proto
 
@@ -74,8 +74,19 @@ func (c *CacheConn) communicateV(req net.Buffers, res []byte) error {
 func (c *CacheConn) set(val []byte) error {
 	size := make([]byte, 8)
 	binary.BigEndian.PutUint64(size, uint64(len(val)))
-	res := make([]byte, 1)
-	return c.communicateV(net.Buffers{size, val}, res)
+	if _, ok := c.conn.v.(*net.TCPConn); ok {
+		return c.conn.writev(net.Buffers{size, val})
+	}
+
+	_, err := c.tlsBuffer.Write(size)
+	if err != nil {
+		return fmt.Errorf("tls buffer write size failed: %w", err)
+	}
+	_, err = c.tlsBuffer.Write(val)
+	if err != nil {
+		return fmt.Errorf("tls buffer write val failed: %w", err)
+	}
+	return c.tlsBuffer.Flush()
 }
 
 func (c *CacheConn) get(key []byte) (val []byte, err error) {

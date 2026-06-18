@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package proto
 
@@ -78,28 +78,14 @@ func (c *Conn) communicateV(req net.Buffers, res []byte) error {
 func Dial(deadline time.Time, address string, config *tls.Config) (*Conn, error) {
 	var c net.Conn
 	var err error
-	var tcp *net.TCPConn
 	tcpDialer := net.Dialer{Deadline: deadline}
 	if config == nil {
 		c, err = tcpDialer.Dial("tcp6", address)
-		if err != nil {
-			return nil, fmt.Errorf("tcp6 dial failed: %w", err)
-		}
-		tcp = c.(*net.TCPConn)
 	} else {
 		dialer := tls.Dialer{Config: config, NetDialer: &tcpDialer}
 		c, err = dialer.Dial("tcp6", address)
-		if err != nil {
-			return nil, fmt.Errorf("tls dial failed: %w", err)
-		}
-		tcp = c.(*tls.Conn).NetConn().(*net.TCPConn)
 	}
-
-	err = tcp.SetLinger(0)
-	if err != nil {
-		return nil, fmt.Errorf("set linger failed: %w", err)
-	}
-	return &Conn{c}, nil
+	return &Conn{c}, err
 }
 
 func (c *Conn) SetDeadline(deadline time.Time) error {
