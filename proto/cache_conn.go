@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"time"
@@ -23,8 +24,9 @@ const (
 )
 
 type CacheConn struct {
-	tlsBuffer *bufio.Writer
-	conn      *Conn
+	reader *bufio.Reader
+	writer *bufio.Writer
+	conn   *Conn
 }
 
 func DialCache(deadline time.Time, address string, threadID uint32, config *tls.Config) (*CacheConn, error) {
@@ -45,63 +47,88 @@ func DialCache(deadline time.Time, address string, threadID uint32, config *tls.
 		return nil, err
 	}
 
-	var buff *bufio.Writer
+	r := bufio.NewReaderSize(conn.v, 1<<14)
+	var w *bufio.Writer
 	if _, ok := conn.v.(*tls.Conn); ok {
-		buff = bufio.NewWriterSize(conn.v, 1<<14)
+		w = bufio.NewWriterSize(conn.v, 1<<14)
 	}
 
-	return &CacheConn{buff, conn}, nil
+	return &CacheConn{r, w, conn}, nil
 }
 
 func (c *CacheConn) communicateV(req net.Buffers, res []byte) error {
-	if c.tlsBuffer == nil {
+	if _, ok := c.conn.v.(*net.TCPConn); ok {
 		return c.conn.communicateV(req, res)
 	}
 
 	for _, buff := range req {
-		_, err := c.tlsBuffer.Write(buff)
+		_, err := c.writer.Write(buff)
 		if err != nil {
 			return fmt.Errorf("tls buffer write failed: %w", err)
 		}
 	}
-	err := c.tlsBuffer.Flush()
+	err := c.writer.Flush()
 	if err != nil {
 		return fmt.Errorf("tls buffer flush failed: %w", err)
 	}
 	return c.conn.read(res)
 }
 
+func (c *CacheConn) writev(buffers net.Buffers) error {
+	if _, ok := c.conn.v.(*net.TCPConn); ok {
+		return c.conn.writev(buffers)
+	}
+
+	for _, buff := range buffers {
+		_, err := c.writer.Write(buff)
+		if err != nil {
+			return fmt.Errorf("buffer write failed: %w", err)
+		}
+	}
+	err := c.writer.Flush()
+	if err != nil {
+		return fmt.Errorf("buffer flush failed: %w", err)
+	}
+	return nil
+}
+
 func (c *CacheConn) set(val []byte) error {
 	size := make([]byte, 8)
 	binary.BigEndian.PutUint64(size, uint64(len(val)))
-	if c.tlsBuffer == nil {
+	if _, ok := c.conn.v.(*net.TCPConn); ok {
 		return c.conn.writev(net.Buffers{size, val})
 	}
 
-	_, err := c.tlsBuffer.Write(size)
+	_, err := c.writer.Write(size)
 	if err != nil {
 		return fmt.Errorf("tls buffer write size failed: %w", err)
 	}
-	_, err = c.tlsBuffer.Write(val)
+	_, err = c.writer.Write(val)
 	if err != nil {
 		return fmt.Errorf("tls buffer write val failed: %w", err)
 	}
-	return c.tlsBuffer.Flush()
+	return c.writer.Flush()
 }
 
 func (c *CacheConn) get(key []byte) (val []byte, err error) {
 	res := make([]byte, 8+1)
-	err = c.communicateV(net.Buffers{{_CMD_GET_OR_SET, byte(len(key))}, key}, res)
+	err = c.writev(net.Buffers{{_CMD_GET_OR_SET, byte(len(key))}, key})
 	if err != nil {
 		return nil, err
 	}
+
+	_, err = io.ReadFull(c.reader, res)
+	if err != nil {
+		return nil, err
+	}
+
 	if res[8] == 1 {
 		return nil, nil
 	}
 
 	size := binary.BigEndian.Uint64(res)
 	val = make([]byte, size)
-	err = c.conn.read(val)
+	_, err = io.ReadFull(c.reader, val)
 	if err != nil {
 		return nil, fmt.Errorf("read value failed: %w", err)
 	}

@@ -4,13 +4,11 @@
 package client
 
 import (
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
-	"os"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
@@ -25,7 +23,7 @@ func verifyLeader(deadline time.Time, addrs []string, config *tls.Config) error 
 		addr := addrs[i]
 		leader, err := AdminLeader(deadline, addr, config)
 		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
+			if errIsIOTimeout(err) {
 				return fmt.Errorf("request leader failed: %w", err)
 			}
 
@@ -187,7 +185,7 @@ func leaderRandom(deadline time.Time, addrs []string, config *tls.Config) (strin
 
 	for _, addr := range cp {
 		leader, err := AdminLeader(deadline, addr, config)
-		if err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		if err == nil || errIsIOTimeout(err) {
 			return leader, err
 		}
 	}
@@ -230,7 +228,7 @@ func AdminLeaderCluster(deadline time.Time, addresses []string, config *tls.Conf
 
 	for {
 		leader, cluster, err := do()
-		if err == nil || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		if err == nil || errIsIOTimeout(err) {
 			return leader, cluster, err
 		}
 		nap()

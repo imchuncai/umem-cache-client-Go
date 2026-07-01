@@ -30,6 +30,7 @@ type Cluster struct {
 	members   []member
 }
 
+// annoying stupid DeadlineExceeded
 func errIsIOTimeout(err error) bool {
 	return errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -185,7 +184,7 @@ func _testClusterAdjust(t *testing.T, from []string, to []string, param TestPara
 		if err == nil {
 			return
 		}
-		if err == os.ErrDeadlineExceeded {
+		if errIsIOTimeout(err) {
 			t.Fatal(err)
 		}
 	}

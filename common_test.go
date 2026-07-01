@@ -136,7 +136,7 @@ func (m *Machine) Ping(deadline time.Time, config *tls.Config) error {
 			conn.Close()
 			return nil
 		}
-		if errors.Is(err, os.ErrDeadlineExceeded) {
+		if errIsIOTimeout(err) {
 			return err
 		}
 	}
