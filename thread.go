@@ -12,14 +12,13 @@ import (
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
-	"golang.org/x/sync/semaphore"
 )
 
 type thread struct {
 	route   string
 	id      uint32
 	config  *tls.Config
-	tickets *semaphore.Weighted // nil for no limit
+	tickets chan struct{} // nil for no limit
 
 	mu        sync.Mutex
 	closed    bool
@@ -40,7 +39,7 @@ func (t *thread) init(route string, id uint32, config Config) {
 	t.config = config.TLSConfig
 	if config.MaxConnsPerThread > 0 {
 		t.idleConns = make([]*proto.CacheConn, 0, config.MaxConnsPerThread)
-		t.tickets = semaphore.NewWeighted(int64(config.MaxConnsPerThread))
+		t.tickets = make(chan struct{}, config.MaxConnsPerThread)
 	}
 }
 
@@ -49,14 +48,26 @@ func (t *thread) acquireTicket(deadline time.Time) error {
 		return nil
 	}
 
+	select {
+	case t.tickets <- struct{}{}:
+		return nil
+	default:
+	}
+
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	return t.tickets.Acquire(ctx, 1)
+
+	select {
+	case t.tickets <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (t *thread) releaseTicket() {
 	if t.tickets != nil {
-		t.tickets.Release(1)
+		<-t.tickets
 	}
 }
 
