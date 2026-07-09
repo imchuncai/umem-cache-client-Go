@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -8,11 +8,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math/bits"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
+	"github.com/twmb/murmur3"
 )
 
 var errClosed = errors.New("cluster is closed")
@@ -140,7 +142,7 @@ func (c *Cluster) auth() (uint64, *authority, []member, error) {
 	return c.version, c.authority, c.members, nil
 }
 
-func (c *Cluster) doOnce(ctx context.Context, deadline time.Time, hkey uint64, f func(m member, threadID int) error) (uint64, error) {
+func (c *Cluster) doOnce(ctx context.Context, deadline time.Time, h1, h2 uint64, f func(m member, threadID uint64) error) (uint64, error) {
 	version, auth, members, err := c.auth()
 	if err != nil {
 		return 0, err
@@ -151,10 +153,9 @@ func (c *Cluster) doOnce(ctx context.Context, deadline time.Time, hkey uint64, f
 		return version, err
 	}
 
-	threadI := hkey % uint64(len(members)*c.config.ThreadNR)
-	m := members[threadI/uint64(c.config.ThreadNR)]
-	threadID := int(threadI % uint64(c.config.ThreadNR))
-	err = f(m, threadID)
+	m := members[h2&uint64(len(members)-1)]
+	hi, _ := bits.Mul64(h1, uint64(c.config.ThreadNR))
+	err = f(m, hi)
 	if err != nil {
 		return version, err
 	}
@@ -170,12 +171,13 @@ func (c *Cluster) doOnce(ctx context.Context, deadline time.Time, hkey uint64, f
 	}
 }
 
-func (c *Cluster) do(deadline time.Time, hkey uint64, f func(m member, threadID int) error) error {
+func (c *Cluster) do(deadline time.Time, key []byte, f func(m member, threadID uint64) error) error {
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
+	h1, h2 := murmur3.SeedSum128(74, 74, key)
 	for ctx.Err() == nil {
-		version, err := c.doOnce(ctx, deadline, hkey, f)
+		version, err := c.doOnce(ctx, deadline, h1, h2, f)
 		if err == nil || errIsIOTimeout(err) || errors.Is(err, proto.ErrClient) || errors.Is(err, errClosed) {
 			return err
 		}
@@ -193,8 +195,7 @@ func (c *Cluster) deadline() time.Time {
 func (c *Cluster) Del(key []byte) error {
 	deadline := c.deadline()
 
-	hkey := hash(key)
-	return c.do(deadline, hkey, func(m member, threadID int) error {
+	return c.do(deadline, key, func(m member, threadID uint64) error {
 		return m.Del(deadline, threadID, key)
 	})
 }
@@ -202,8 +203,7 @@ func (c *Cluster) Del(key []byte) error {
 func (c *Cluster) GetOrSet(key []byte, fallbackGet proto.FallbackGetFunc) (val []byte, err error) {
 	deadline := c.deadline()
 
-	hkey := hash(key)
-	err = c.do(deadline, hkey, func(m member, threadID int) error {
+	err = c.do(deadline, key, func(m member, threadID uint64) error {
 		val, err = m.GetOrSet(deadline, threadID, key, fallbackGet)
 		return err
 	})

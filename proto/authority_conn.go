@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package proto
 
@@ -74,8 +74,8 @@ func (c *AuthorityConn) RecvApproval() (Approval, error) {
 	}
 
 	return Approval{
-		binary.BigEndian.Uint64(data),
-		binary.BigEndian.Uint64(data[8:]),
+		binary.LittleEndian.Uint64(data),
+		binary.LittleEndian.Uint64(data[8:]),
 	}, nil
 }
 

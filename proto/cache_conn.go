@@ -94,7 +94,7 @@ func (c *CacheConn) writev(buffers net.Buffers) error {
 
 func (c *CacheConn) set(val []byte) error {
 	size := make([]byte, 8)
-	binary.BigEndian.PutUint64(size, uint64(len(val)))
+	binary.LittleEndian.PutUint64(size, uint64(len(val)))
 	if _, ok := c.conn.v.(*net.TCPConn); ok {
 		return c.conn.writev(net.Buffers{size, val})
 	}
@@ -126,7 +126,7 @@ func (c *CacheConn) get(key []byte) (val []byte, err error) {
 		return nil, nil
 	}
 
-	size := binary.BigEndian.Uint64(res)
+	size := binary.LittleEndian.Uint64(res)
 	val = make([]byte, size)
 	_, err = io.ReadFull(c.reader, val)
 	if err != nil {

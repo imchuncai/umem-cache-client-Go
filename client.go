@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
 import (
+	"math/bits"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
+	"github.com/twmb/murmur3"
 )
 
 type Client struct {
@@ -27,7 +29,9 @@ func New(address string, config Config) (*Client, error) {
 }
 
 func (c *Client) dispatch(key []byte) *thread {
-	return &c.threads[hash(key)%uint64(len(c.threads))]
+	h1, _ := murmur3.SeedSum128(74, 74, key)
+	hi, _ := bits.Mul64(h1, uint64(len(c.threads)))
+	return &c.threads[hi]
 }
 
 func (c *Client) deadline() time.Time {

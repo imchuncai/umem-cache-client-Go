@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -50,17 +50,17 @@ func (m *member) Close() {
 
 func (m *member) realKey(key []byte) []byte {
 	k := make([]byte, 8+len(key))
-	binary.BigEndian.PutUint64(k, m.version)
+	binary.LittleEndian.PutUint64(k, m.version)
 	copy(k[8:], key)
 	return k
 }
 
-func (m *member) GetOrSet(deadline time.Time, threadID int, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
+func (m *member) GetOrSet(deadline time.Time, threadID uint64, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
 	key = m.realKey(key)
 	return m.threads[threadID].GetOrSet(deadline, key, get)
 }
 
-func (m *member) Del(deadline time.Time, threadID int, key []byte) error {
+func (m *member) Del(deadline time.Time, threadID uint64, key []byte) error {
 	key = m.realKey(key)
 	return m.threads[threadID].Del(deadline, key)
 }

@@ -107,7 +107,7 @@ func (c *Conn) Close() {
 func (c *Conn) connect(threadID uint32) error {
 	req := make([]byte, 4+4)
 	req[0] = byte(_CMD_CONNECT)
-	binary.BigEndian.PutUint32(req[4:], threadID)
+	binary.LittleEndian.PutUint32(req[4:], threadID)
 
 	res := make([]byte, 1)
 	return c.communicate(req, res)
@@ -117,7 +117,7 @@ func (c *Conn) changeCluster(machines []Machine, cmd raftCommand) error {
 	size := len(machines) * _MACHINE_BIN_SIZE
 	req := make([]byte, 0, 8+8+size)
 	req = append(req, byte(cmd), 0, 0, 0, 0, 0, 0, 0)
-	req = binary.BigEndian.AppendUint64(req, uint64(size))
+	req = binary.LittleEndian.AppendUint64(req, uint64(size))
 	for i := range machines {
 		req = machines[i].append(req)
 	}
@@ -166,8 +166,8 @@ func (c *Conn) Cluster() (Cluster, error) {
 	}
 
 	_type := res[0]
-	size := binary.BigEndian.Uint64(res[8:])
-	version := binary.BigEndian.Uint64(res[8+8:])
+	size := binary.LittleEndian.Uint64(res[8:])
+	version := binary.LittleEndian.Uint64(res[8+8:])
 	bin := make([]byte, size)
 	err = c.read(bin)
 	if err != nil {

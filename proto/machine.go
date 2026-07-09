@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package proto
 
@@ -29,9 +29,9 @@ func (m *Machine) append(dest []byte) []byte {
 	dest = append(dest, m.Addr.IP...)
 	dest = binary.BigEndian.AppendUint16(dest, uint16(m.Addr.Port))
 	dest = append(dest, 0, 0)
-	dest = binary.BigEndian.AppendUint32(dest, m.ID)
-	dest = binary.BigEndian.AppendUint64(dest, m.Stability)
-	return binary.BigEndian.AppendUint64(dest, m.Version)
+	dest = binary.LittleEndian.AppendUint32(dest, m.ID)
+	dest = binary.LittleEndian.AppendUint64(dest, m.Stability)
+	return binary.LittleEndian.AppendUint64(dest, m.Version)
 }
 
 func newMachine(bin []byte) Machine {
@@ -41,9 +41,9 @@ func newMachine(bin []byte) Machine {
 	addr.Port = int(binary.BigEndian.Uint16(bin[16:]))
 	return Machine{
 		addr,
-		binary.BigEndian.Uint32(bin[20:]),
-		binary.BigEndian.Uint64(bin[24:]),
-		binary.BigEndian.Uint64(bin[32:]),
+		binary.LittleEndian.Uint32(bin[20:]),
+		binary.LittleEndian.Uint64(bin[24:]),
+		binary.LittleEndian.Uint64(bin[32:]),
 	}
 }
 
