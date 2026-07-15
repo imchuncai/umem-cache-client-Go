@@ -4,6 +4,7 @@
 package proto
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
@@ -12,6 +13,8 @@ import (
 	"net"
 	"time"
 )
+
+const DEFAULT_BUFFER_SIZE = 16 << 10
 
 type raftCommand byte
 
@@ -29,16 +32,12 @@ const (
 )
 
 type Conn struct {
-	v net.Conn
+	v      net.Conn
+	reader *bufio.Reader
 }
 
 func (c *Conn) write(buff []byte) error {
 	_, err := c.v.Write(buff)
-	return err
-}
-
-func (c *Conn) read(buff []byte) error {
-	_, err := io.ReadFull(c.v, buff)
 	return err
 }
 
@@ -47,24 +46,15 @@ func (c *Conn) writev(buffers net.Buffers) error {
 	return err
 }
 
+func (c *Conn) read(buff []byte) error {
+	_, err := io.ReadFull(c.reader, buff)
+	return err
+}
+
 func (c *Conn) communicate(req []byte, res []byte) error {
 	err := c.write(req)
 	if err != nil {
 		return fmt.Errorf("write failed: %w", err)
-	}
-
-	err = c.read(res)
-	if err != nil {
-		return fmt.Errorf("read failed: %w", err)
-	}
-
-	return nil
-}
-
-func (c *Conn) communicateV(req net.Buffers, res []byte) error {
-	err := c.writev(req)
-	if err != nil {
-		return fmt.Errorf("writeV failed: %w", err)
 	}
 
 	err = c.read(res)
@@ -85,7 +75,7 @@ func Dial(deadline time.Time, address string, config *tls.Config) (*Conn, error)
 		dialer := tls.Dialer{Config: config, NetDialer: &tcpDialer}
 		c, err = dialer.Dial("tcp6", address)
 	}
-	return &Conn{c}, err
+	return &Conn{c, bufio.NewReaderSize(c, DEFAULT_BUFFER_SIZE)}, err
 }
 
 func (c *Conn) SetDeadline(deadline time.Time) error {
@@ -109,8 +99,7 @@ func (c *Conn) connect(threadID uint32) error {
 	req[0] = byte(_CMD_CONNECT)
 	binary.LittleEndian.PutUint32(req[4:], threadID)
 
-	res := make([]byte, 1)
-	return c.communicate(req, res)
+	return c.communicate(req, []byte{0})
 }
 
 func (c *Conn) changeCluster(machines []Machine, cmd raftCommand) error {
@@ -122,8 +111,7 @@ func (c *Conn) changeCluster(machines []Machine, cmd raftCommand) error {
 		req = machines[i].append(req)
 	}
 
-	res := make([]byte, 1)
-	return c.communicate(req, res)
+	return c.communicate(req, []byte{0})
 }
 
 func (c *Conn) InitCluster(addrs []*net.TCPAddr) error {

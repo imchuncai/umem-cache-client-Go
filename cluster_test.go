@@ -268,13 +268,13 @@ func warmup(deadline time.Time, address string, config *tls.Config) error {
 	defer conn.Close()
 
 	small := Case{[]byte{0}, []byte{0}}
-	_, err = conn.GetOrSet(deadline, small.Key, fallbackGet(small))
+	_, err = conn.GetOrSet(small.Key, fallbackGet(small))
 	if err != nil {
 		return fmt.Errorf("get or set small failed: %w", err)
 	}
 
 	big := Case{[]byte{1}, make([]byte, SERVER_MEMORY/THREAD_NR)}
-	val, _ := conn.GetOrSet(deadline, big.Key, fallbackGet(big))
+	val, _ := conn.GetOrSet(big.Key, fallbackGet(big))
 	if val == nil {
 		return fmt.Errorf("get or set big failed: %w", err)
 	}

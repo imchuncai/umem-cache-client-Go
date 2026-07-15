@@ -7,8 +7,8 @@ import (
 	"bufio"
 	"crypto/tls"
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net"
 	"time"
@@ -16,15 +16,20 @@ import (
 
 type FallbackGetFunc func(key []byte) (val []byte, err error)
 
-const _KEY_SIZE_MAX = math.MaxUint8
+var (
+	ErrClientSide  = errors.New("client side error")
+	ErrBadKeySize  = fmt.Errorf("%w: key size out of limit", ErrClientSide)
+	ErrFallbackGet = fmt.Errorf("%w: fallback get failed", ErrClientSide)
+)
+
+type _CMD byte
 
 const (
-	_CMD_GET_OR_SET byte = iota
+	_CMD_GET_OR_SET _CMD = iota
 	_CMD_DEL
 )
 
 type CacheConn struct {
-	reader *bufio.Reader
 	writer *bufio.Writer
 	conn   *Conn
 }
@@ -32,50 +37,38 @@ type CacheConn struct {
 func DialCache(deadline time.Time, address string, threadID uint32, config *tls.Config) (*CacheConn, error) {
 	conn, err := Dial(deadline, address, config)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial failed: %w", err)
 	}
 
 	err = conn.SetDeadline(deadline)
 	if err != nil {
 		conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("set deadline failed: %w", err)
 	}
 
 	err = conn.connect(threadID)
 	if err != nil {
 		conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("connect thread failed: %w", err)
 	}
 
-	r := bufio.NewReaderSize(conn.v, 1<<14)
-	var w *bufio.Writer
-	if _, ok := conn.v.(*tls.Conn); ok {
-		w = bufio.NewWriterSize(conn.v, 1<<14)
+	if config == nil {
+		return &CacheConn{nil, conn}, nil
 	}
 
-	return &CacheConn{r, w, conn}, nil
+	return &CacheConn{bufio.NewWriterSize(conn.v, DEFAULT_BUFFER_SIZE), conn}, nil
 }
 
-func (c *CacheConn) communicateV(req net.Buffers, res []byte) error {
-	if _, ok := c.conn.v.(*net.TCPConn); ok {
-		return c.conn.communicateV(req, res)
-	}
+func (c *CacheConn) SetDeadline(deadline time.Time) error {
+	return c.conn.SetDeadline(deadline)
+}
 
-	for _, buff := range req {
-		_, err := c.writer.Write(buff)
-		if err != nil {
-			return fmt.Errorf("tls buffer write failed: %w", err)
-		}
-	}
-	err := c.writer.Flush()
-	if err != nil {
-		return fmt.Errorf("tls buffer flush failed: %w", err)
-	}
-	return c.conn.read(res)
+func (c *CacheConn) read(buff []byte) error {
+	return c.conn.read(buff)
 }
 
 func (c *CacheConn) writev(buffers net.Buffers) error {
-	if _, ok := c.conn.v.(*net.TCPConn); ok {
+	if c.writer == nil {
 		return c.conn.writev(buffers)
 	}
 
@@ -92,34 +85,22 @@ func (c *CacheConn) writev(buffers net.Buffers) error {
 	return nil
 }
 
-func (c *CacheConn) set(val []byte) error {
-	size := make([]byte, 8)
-	binary.LittleEndian.PutUint64(size, uint64(len(val)))
-	if _, ok := c.conn.v.(*net.TCPConn); ok {
-		return c.conn.writev(net.Buffers{size, val})
+func (c *CacheConn) writeCMD(cmd _CMD, key []byte) error {
+	if len(key) > math.MaxUint8 {
+		return ErrBadKeySize
 	}
 
-	_, err := c.writer.Write(size)
-	if err != nil {
-		return fmt.Errorf("tls buffer write size failed: %w", err)
-	}
-	_, err = c.writer.Write(val)
-	if err != nil {
-		return fmt.Errorf("tls buffer write val failed: %w", err)
-	}
-	return c.writer.Flush()
+	return c.writev(net.Buffers{{byte(cmd), byte(len(key))}, key})
 }
 
-func (c *CacheConn) get(key []byte) (val []byte, err error) {
-	res := make([]byte, 8+1)
-	err = c.writev(net.Buffers{{_CMD_GET_OR_SET, byte(len(key))}, key})
-	if err != nil {
-		return nil, err
+func (c *CacheConn) get(key []byte) ([]byte, error) {
+	if err := c.writeCMD(_CMD_GET_OR_SET, key); err != nil {
+		return nil, fmt.Errorf("write cmd failed: %w", err)
 	}
 
-	_, err = io.ReadFull(c.reader, res)
-	if err != nil {
-		return nil, err
+	res := make([]byte, 8+1)
+	if err := c.read(res); err != nil {
+		return nil, fmt.Errorf("read cmd response failed: %w", err)
 	}
 
 	if res[8] == 1 {
@@ -127,24 +108,20 @@ func (c *CacheConn) get(key []byte) (val []byte, err error) {
 	}
 
 	size := binary.LittleEndian.Uint64(res)
-	val = make([]byte, size)
-	_, err = io.ReadFull(c.reader, val)
-	if err != nil {
+	val := make([]byte, size)
+	if err := c.read(val); err != nil {
 		return nil, fmt.Errorf("read value failed: %w", err)
 	}
 	return val, nil
 }
 
-func (c *CacheConn) GetOrSet(deadline time.Time, key []byte, get FallbackGetFunc) ([]byte, error) {
-	if len(key) > _KEY_SIZE_MAX {
-		return nil, ErrBadKeySize
-	}
+func (c *CacheConn) set(val []byte) error {
+	size := make([]byte, 8)
+	binary.LittleEndian.PutUint64(size, uint64(len(val)))
+	return c.writev(net.Buffers{size, val})
+}
 
-	err := c.conn.SetDeadline(deadline)
-	if err != nil {
-		return nil, err
-	}
-
+func (c *CacheConn) GetOrSet(key []byte, get FallbackGetFunc) ([]byte, error) {
 	val, err := c.get(key)
 	if err != nil {
 		return nil, fmt.Errorf("get failed: %w", err)
@@ -163,21 +140,22 @@ func (c *CacheConn) GetOrSet(deadline time.Time, key []byte, get FallbackGetFunc
 		return nil, fmt.Errorf("%w: %w", ErrFallbackGet, err)
 	}
 
-	return val, c.set(val)
+	if err := c.set(val); err != nil {
+		return val, fmt.Errorf("set failed: %w", err)
+	}
+	return val, nil
 }
 
-func (c *CacheConn) Del(deadline time.Time, key []byte) error {
-	if len(key) > _KEY_SIZE_MAX {
-		return ErrBadKeySize
-	}
-
-	err := c.conn.SetDeadline(deadline)
+func (c *CacheConn) Del(key []byte) error {
+	err := c.writeCMD(_CMD_DEL, key)
 	if err != nil {
-		return err
+		return fmt.Errorf("write cmd failed: %w", err)
 	}
 
-	res := make([]byte, 1)
-	return c.communicateV(net.Buffers{{_CMD_DEL, byte(len(key))}, key}, res)
+	if err := c.read([]byte{0}); err != nil {
+		return fmt.Errorf("read failed: %w", err)
+	}
+	return nil
 }
 
 func (c *CacheConn) Close() {

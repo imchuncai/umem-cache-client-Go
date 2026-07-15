@@ -178,7 +178,7 @@ func (c *Cluster) do(deadline time.Time, key []byte, f func(m member, threadID u
 	h1, h2 := murmur3.SeedSum128(74, 74, key)
 	for ctx.Err() == nil {
 		version, err := c.doOnce(ctx, deadline, h1, h2, f)
-		if err == nil || errIsIOTimeout(err) || errors.Is(err, proto.ErrClient) || errors.Is(err, errClosed) {
+		if err == nil || errIsIOTimeout(err) || errors.Is(err, proto.ErrClientSide) || errors.Is(err, errClosed) {
 			return err
 		}
 

@@ -21,8 +21,7 @@ type thread struct {
 	tickets chan struct{} // nil for no limit
 
 	mu        sync.Mutex
-	closed    bool
-	idleConns []*proto.CacheConn
+	idleConns []*proto.CacheConn // nil for closed
 }
 
 func newThreads(route string, config Config) []thread {
@@ -37,10 +36,14 @@ func (t *thread) init(route string, id uint32, config Config) {
 	t.route = route
 	t.id = id
 	t.config = config.TLSConfig
+	t.idleConns = make([]*proto.CacheConn, 0, config.MaxConnsPerThread)
 	if config.MaxConnsPerThread > 0 {
-		t.idleConns = make([]*proto.CacheConn, 0, config.MaxConnsPerThread)
 		t.tickets = make(chan struct{}, config.MaxConnsPerThread)
 	}
+}
+
+func (t *thread) closed() bool {
+	return t.idleConns == nil
 }
 
 func (t *thread) acquireTicket(deadline time.Time) error {
@@ -71,13 +74,14 @@ func (t *thread) releaseTicket() {
 	}
 }
 
-func (t *thread) dispatch() (*proto.CacheConn, error) {
+func (t *thread) __dispatch() (*proto.CacheConn, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.closed {
+	if t.closed() {
 		return nil, errors.New("thread is close")
 	}
+
 	if len(t.idleConns) == 0 {
 		return nil, nil
 	}
@@ -88,19 +92,28 @@ func (t *thread) dispatch() (*proto.CacheConn, error) {
 	return conn, nil
 }
 
+func (t *thread) dispatch(deadline time.Time) (*proto.CacheConn, error) {
+	conn, err := t.__dispatch()
+	if conn != nil && conn.SetDeadline(deadline) != nil {
+		conn.Close()
+		return nil, nil
+	}
+	return conn, err
+}
+
 func (t *thread) _return(c *proto.CacheConn) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.closed {
+	if t.closed() {
 		c.Close()
 	} else {
 		t.idleConns = append(t.idleConns, c)
 	}
 }
 
-func (t *thread) __getOrSet(conn *proto.CacheConn, deadline time.Time, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
-	val, err = conn.GetOrSet(deadline, key, get)
+func (t *thread) __getOrSet(conn *proto.CacheConn, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
+	val, err = conn.GetOrSet(key, get)
 	if err == nil {
 		t._return(conn)
 	} else {
@@ -119,13 +132,13 @@ func (t *thread) GetOrSet(deadline time.Time, key []byte, get proto.FallbackGetF
 	}
 	defer t.releaseTicket()
 
-	conn, err := t.dispatch()
+	conn, err := t.dispatch(deadline)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch failed: %w", err)
 	}
 
 	if conn != nil {
-		val, err = t.__getOrSet(conn, deadline, key, get)
+		val, err = t.__getOrSet(conn, key, get)
 		if err == nil {
 			return
 		}
@@ -136,11 +149,11 @@ func (t *thread) GetOrSet(deadline time.Time, key []byte, get proto.FallbackGetF
 		return nil, fmt.Errorf("dial cache: %s %d failed: %w", t.route, t.id, err)
 	}
 
-	return t.__getOrSet(conn, deadline, key, get)
+	return t.__getOrSet(conn, key, get)
 }
 
-func (t *thread) __del(conn *proto.CacheConn, deadline time.Time, key []byte) error {
-	err := conn.Del(deadline, key)
+func (t *thread) __del(conn *proto.CacheConn, key []byte) error {
+	err := conn.Del(key)
 	if err == nil {
 		t._return(conn)
 	} else {
@@ -156,12 +169,12 @@ func (t *thread) Del(deadline time.Time, key []byte) error {
 	}
 	defer t.releaseTicket()
 
-	conn, err := t.dispatch()
+	conn, err := t.dispatch(deadline)
 	if err != nil {
 		return fmt.Errorf("dispatch failed: %w", err)
 	}
 
-	if conn != nil && t.__del(conn, deadline, key) == nil {
+	if conn != nil && t.__del(conn, key) == nil {
 		return nil
 	}
 
@@ -170,15 +183,15 @@ func (t *thread) Del(deadline time.Time, key []byte) error {
 		return fmt.Errorf("dial cache: %s %d failed: %w", t.route, t.id, err)
 	}
 
-	return t.__del(conn, deadline, key)
+	return t.__del(conn, key)
 }
 
 func (t *thread) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.closed = true
 	for _, conn := range t.idleConns {
 		conn.Close()
 	}
+	t.idleConns = nil
 }
