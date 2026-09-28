@@ -94,9 +94,13 @@ func exampleDel(client ClientInterface) {
 	exampleMu.Lock()
 	defer exampleMu.Unlock()
 
+	// you can do some update to the key now, or just delete it.
+
+	// Note: it is recommended to delete the key as late as possible,
+	// because if the key is in the cache, it can still serve the clients
+	// during the updating.
 	err := client.Del(exampleKey)
 	fmt.Printf("%v\n", err)
-	// you can do some update to the key now, or just delete it.
 
 	// Note: you have no reason to re-cache the key now, because if it is a
 	// cold key, it may never be fetched, and if it is a hot key, it may
