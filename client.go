@@ -5,6 +5,7 @@ package client
 
 import (
 	"math/bits"
+	"sync"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
@@ -44,6 +45,21 @@ func (c *Client) GetOrSet(key []byte, get proto.FallbackGetFunc) ([]byte, error)
 
 func (c *Client) Del(key []byte) error {
 	return c.dispatch(key).Del(c.deadline(), key)
+}
+
+func (c *Client) Stats() []proto.Stats {
+	deadline := c.deadline()
+	stats := make([]proto.Stats, len(c.threads))
+	var wg sync.WaitGroup
+	wg.Add(len(c.threads))
+	for i := range c.threads {
+		go func() {
+			stats[i] = c.threads[i].Stats(deadline)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	return stats
 }
 
 func (c *Client) Close() {

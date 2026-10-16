@@ -27,6 +27,7 @@ type _CMD byte
 const (
 	_CMD_GET_OR_SET _CMD = iota
 	_CMD_DEL
+	_CMD_STATS
 )
 
 type CacheConn struct {
@@ -83,6 +84,10 @@ func (c *CacheConn) writev(buffers net.Buffers) error {
 		return fmt.Errorf("buffer flush failed: %w", err)
 	}
 	return nil
+}
+
+func (c *CacheConn) discard(n int) error {
+	return c.conn.discard(n)
 }
 
 func (c *CacheConn) writeCMD(cmd _CMD, key []byte) error {
@@ -156,6 +161,59 @@ func (c *CacheConn) Del(key []byte) error {
 		return fmt.Errorf("read failed: %w", err)
 	}
 	return nil
+}
+
+type Stats struct {
+	Error error
+
+	ConfigThreadNR   uint32
+	ConfigTCPTimeout uint32
+	ConfigMaxConn    uint32
+	ConfigMemLimit   uint64
+	Version          uint64
+
+	StatNanoseconds uint64
+	Connects        uint64
+	Disconnects     uint64
+	Hits            uint64
+	Misses          uint64
+	Dels            uint64
+}
+
+func (c *CacheConn) Stats() Stats {
+	err := c.writeCMD(_CMD_STATS, nil)
+	if err != nil {
+		return Stats{Error: fmt.Errorf("write cmd failed: %w", err)}
+	}
+
+	const sizeV1 = 76
+	res := make([]byte, 4+sizeV1)
+	if err := c.read(res); err != nil {
+		return Stats{Error: fmt.Errorf("read failed: %w", err)}
+	}
+	size := binary.LittleEndian.Uint32(res)
+
+	var stats Stats
+	stats.ConfigThreadNR = binary.LittleEndian.Uint32(res[4:])
+	stats.ConfigTCPTimeout = binary.LittleEndian.Uint32(res[8:])
+	stats.ConfigMaxConn = binary.LittleEndian.Uint32(res[12:])
+	stats.ConfigMemLimit = binary.LittleEndian.Uint64(res[16:])
+	stats.Version = binary.LittleEndian.Uint64(res[24:])
+
+	stats.StatNanoseconds = binary.LittleEndian.Uint64(res[32:])
+	stats.Connects = binary.LittleEndian.Uint64(res[40:])
+	stats.Disconnects = binary.LittleEndian.Uint64(res[48:])
+	stats.Hits = binary.LittleEndian.Uint64(res[56:])
+	stats.Misses = binary.LittleEndian.Uint64(res[64:])
+	stats.Dels = binary.LittleEndian.Uint64(res[72:])
+
+	if size > sizeV1 {
+		err := c.discard(int(size) - sizeV1)
+		if err != nil {
+			return Stats{Error: fmt.Errorf("discard failed: %w", err)}
+		}
+	}
+	return stats
 }
 
 func (c *CacheConn) Close() {

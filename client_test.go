@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -33,6 +33,7 @@ func TestClient(t *testing.T) {
 	defer machine.Stop()
 
 	t.Run("TooManyConnections", testClientTooManyConnections(param))
+	t.Run("Stats", testClientStats(client))
 	t.Run("Timeout", testClientTimeout(client))
 
 	// Note: if we run basic test on t.Failed(), previous fail log will be wiped
@@ -73,6 +74,35 @@ func testClientTooManyConnections(param TestParam) func(t *testing.T) {
 		}
 		if !ErrIsClosedByPeer(err) {
 			t.Fatal(err)
+		}
+	}
+}
+
+func testClientStats(client *Client) func(t *testing.T) {
+	return func(t *testing.T) {
+		stats := client.Stats()
+		if len(stats) != len(client.threads) {
+			t.Fatal("bad stats length")
+		}
+		for _, s := range stats {
+			if s.Error != nil {
+				t.Fatalf("got error: %v", s.Error)
+			}
+			if int(s.ConfigThreadNR) != len(client.threads) {
+				t.Fatal("bad ConfigThreadNR")
+			}
+			if s.Connects == 0 {
+				t.Fatal("bad Connects")
+			}
+			if s.Hits != 0 {
+				t.Fatal("bad Hits")
+			}
+			if s.Misses != 0 {
+				t.Fatal("bad Misses")
+			}
+			if s.Dels != 0 {
+				t.Fatal("bad Dels")
+			}
 		}
 	}
 }

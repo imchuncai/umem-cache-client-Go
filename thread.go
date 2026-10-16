@@ -186,6 +186,43 @@ func (t *thread) Del(deadline time.Time, key []byte) error {
 	return t.__del(conn, key)
 }
 
+func (t *thread) __stats(conn *proto.CacheConn) proto.Stats {
+	stats := conn.Stats()
+	if stats.Error == nil {
+		t._return(conn)
+	} else {
+		conn.Close()
+	}
+	return stats
+}
+
+func (t *thread) Stats(deadline time.Time) proto.Stats {
+	err := t.acquireTicket(deadline)
+	if err != nil {
+		return proto.Stats{Error: err}
+	}
+	defer t.releaseTicket()
+
+	conn, err := t.dispatch(deadline)
+	if err != nil {
+		return proto.Stats{Error: fmt.Errorf("dispatch failed: %w", err)}
+	}
+
+	if conn != nil {
+		stats := t.__stats(conn)
+		if stats.Error == nil {
+			return stats
+		}
+	}
+
+	conn, err = proto.DialCache(deadline, t.route, t.id, t.config)
+	if err != nil {
+		return proto.Stats{Error: fmt.Errorf("dial cache: %s %d failed: %w", t.route, t.id, err)}
+	}
+
+	return t.__stats(conn)
+}
+
 func (t *thread) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()

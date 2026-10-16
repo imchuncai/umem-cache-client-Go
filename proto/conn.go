@@ -51,6 +51,11 @@ func (c *Conn) read(buff []byte) error {
 	return err
 }
 
+func (c *Conn) discard(n int) error {
+	_, err := c.reader.Discard(n)
+	return err
+}
+
 func (c *Conn) communicate(req []byte, res []byte) error {
 	err := c.write(req)
 	if err != nil {
