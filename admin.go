@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
@@ -64,11 +65,11 @@ func AdminInitCluster(deadline time.Time, addresses []string, config *tls.Config
 	return nil
 }
 
-func adjustMachines(cluster proto.Cluster, to []*net.TCPAddr) []proto.Machine {
+func adjustMachines(cluster proto.Cluster, to []netip.AddrPort) []proto.Machine {
 	n := len(cluster.Machines)
 	machines := make([]proto.Machine, n)
 	for i := 0; i < n; i++ {
-		if cluster.Machines[i].Match(to[i]) {
+		if cluster.Machines[i].Addr == to[i] {
 			machines[i] = cluster.Machines[i]
 		} else {
 			machines[i] = proto.NewInitialMachine(to[i])
@@ -77,20 +78,20 @@ func adjustMachines(cluster proto.Cluster, to []*net.TCPAddr) []proto.Machine {
 	return machines
 }
 
-func shrinkMachines(cluster proto.Cluster, to []*net.TCPAddr) ([]proto.Machine, error) {
+func shrinkMachines(cluster proto.Cluster, to []netip.AddrPort) ([]proto.Machine, error) {
 	n := len(to)
 	for i := 0; i < n; i++ {
-		if !cluster.Machines[i].Match(to[i]) {
+		if cluster.Machines[i].Addr != to[i] {
 			return nil, errors.New("bad addresses")
 		}
 	}
 	return cluster.Machines[:n], nil
 }
 
-func growMachines(cluster proto.Cluster, to []*net.TCPAddr) ([]proto.Machine, error) {
+func growMachines(cluster proto.Cluster, to []netip.AddrPort) ([]proto.Machine, error) {
 	n := len(cluster.Machines)
 	for i := 0; i < n; i++ {
-		if !cluster.Machines[i].Match(to[i]) {
+		if cluster.Machines[i].Addr != to[i] {
 			return nil, errors.New("bad addresses")
 		}
 	}

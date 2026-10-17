@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package proto
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 )
 
 type ClusterType byte
@@ -43,20 +43,12 @@ type Cluster struct {
 	Machines []Machine
 }
 
-func (c Cluster) Addrs() []*net.TCPAddr {
-	addrs := make([]*net.TCPAddr, len(c.Machines))
-	for i, m := range c.Machines {
-		addrs[i] = m.Addr
-	}
-	return addrs
-}
-
-func (c Cluster) Match(addrs []*net.TCPAddr) error {
+func (c Cluster) Match(addrs []netip.AddrPort) error {
 	if len(c.Machines) != len(addrs) {
 		return fmt.Errorf("cluster size not match: want: %d got: %d", len(addrs), len(c.Machines))
 	}
 	for i, m := range c.Machines {
-		if !m.Match(addrs[i]) {
+		if m.Addr != addrs[i] {
 			return fmt.Errorf("%dth address not match: want %s got: %s", i, addrs[i], m.Addr)
 		}
 	}

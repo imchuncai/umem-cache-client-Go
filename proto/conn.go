@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"time"
 )
 
@@ -111,7 +112,7 @@ func (c *Conn) changeCluster(deadline time.Time, machines []Machine, cmd command
 	return c.communicate(deadline, req, []byte{0})
 }
 
-func (c *Conn) InitCluster(deadline time.Time, addrs []*net.TCPAddr) error {
+func (c *Conn) InitCluster(deadline time.Time, addrs []netip.AddrPort) error {
 	machines := make([]Machine, len(addrs))
 	for i := range machines {
 		machines[i] = NewInitialMachine(addrs[i])
