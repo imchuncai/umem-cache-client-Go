@@ -14,12 +14,10 @@ import (
 	"time"
 )
 
-const DEFAULT_BUFFER_SIZE = 16 << 10
-
-type raftCommand byte
+type command byte
 
 const (
-	_CMD_CONNECT raftCommand = iota
+	_CMD_CONNECT command = iota
 	_CMD_LEADER
 	_CMD_CLUSTER
 	_CMD_AUTHORITY
@@ -31,38 +29,28 @@ const (
 	_CMD_CHANGE_CLUSTER
 )
 
-type Conn struct {
-	v      net.Conn
-	reader *bufio.Reader
+func dial(deadline time.Time, address string, config *tls.Config) (net.Conn, error) {
+	tcpDialer := net.Dialer{Deadline: deadline}
+	if config == nil {
+		return tcpDialer.Dial("tcp6", address)
+	} else {
+		dialer := tls.Dialer{Config: config, NetDialer: &tcpDialer}
+		return dialer.Dial("tcp6", address)
+	}
 }
 
-func (c *Conn) write(buff []byte) error {
-	_, err := c.v.Write(buff)
-	return err
-}
+func communicate(deadline time.Time, conn net.Conn, req []byte, res []byte) error {
+	err := conn.SetDeadline(deadline)
+	if err != nil {
+		return fmt.Errorf("set deadline failed: %w", err)
+	}
 
-func (c *Conn) writev(buffers net.Buffers) error {
-	_, err := buffers.WriteTo(c.v)
-	return err
-}
-
-func (c *Conn) read(buff []byte) error {
-	_, err := io.ReadFull(c.reader, buff)
-	return err
-}
-
-func (c *Conn) discard(n int) error {
-	_, err := c.reader.Discard(n)
-	return err
-}
-
-func (c *Conn) communicate(req []byte, res []byte) error {
-	err := c.write(req)
+	_, err = conn.Write(req)
 	if err != nil {
 		return fmt.Errorf("write failed: %w", err)
 	}
 
-	err = c.read(res)
+	_, err = conn.Read(res)
 	if err != nil {
 		return fmt.Errorf("read failed: %w", err)
 	}
@@ -70,44 +58,49 @@ func (c *Conn) communicate(req []byte, res []byte) error {
 	return nil
 }
 
+type Conn struct {
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
 func Dial(deadline time.Time, address string, config *tls.Config) (*Conn, error) {
-	var c net.Conn
-	var err error
-	tcpDialer := net.Dialer{Deadline: deadline}
-	if config == nil {
-		c, err = tcpDialer.Dial("tcp6", address)
-	} else {
-		dialer := tls.Dialer{Config: config, NetDialer: &tcpDialer}
-		c, err = dialer.Dial("tcp6", address)
+	conn, err := dial(deadline, address, config)
+	if err != nil {
+		return nil, err
 	}
-	return &Conn{c, bufio.NewReaderSize(c, DEFAULT_BUFFER_SIZE)}, err
+
+	return &Conn{conn, bufio.NewReaderSize(conn, 1024)}, nil
 }
 
-func (c *Conn) SetDeadline(deadline time.Time) error {
-	return c.v.SetDeadline(deadline)
+func (c *Conn) bufferRead(b []byte) error {
+	_, err := io.ReadFull(c.reader, b)
+	return err
 }
 
-func (c *Conn) setReadDeadline(deadline time.Time) error {
-	return c.v.SetReadDeadline(deadline)
+func (c *Conn) communicate(deadline time.Time, req []byte, res []byte) error {
+	return communicate(deadline, c.conn, req, res)
 }
 
-func (c *Conn) setWriteDeadline(deadline time.Time) error {
-	return c.v.SetWriteDeadline(deadline)
+func (c *Conn) bufferCommunicate(deadline time.Time, req []byte, res []byte) error {
+	err := c.conn.SetDeadline(deadline)
+	if err != nil {
+		return fmt.Errorf("set deadline failed: %w", err)
+	}
+
+	_, err = c.conn.Write(req)
+	if err != nil {
+		return fmt.Errorf("write failed: %w", err)
+	}
+
+	err = c.bufferRead(res)
+	if err != nil {
+		return fmt.Errorf("buffer read failed: %w", err)
+	}
+
+	return nil
 }
 
-func (c *Conn) Close() {
-	c.v.Close()
-}
-
-func (c *Conn) connect(threadID uint32) error {
-	req := make([]byte, 4+4)
-	req[0] = byte(_CMD_CONNECT)
-	binary.LittleEndian.PutUint32(req[4:], threadID)
-
-	return c.communicate(req, []byte{0})
-}
-
-func (c *Conn) changeCluster(machines []Machine, cmd raftCommand) error {
+func (c *Conn) changeCluster(deadline time.Time, machines []Machine, cmd command) error {
 	size := len(machines) * _MACHINE_BIN_SIZE
 	req := make([]byte, 0, 8+8+size)
 	req = append(req, byte(cmd), 0, 0, 0, 0, 0, 0, 0)
@@ -115,26 +108,25 @@ func (c *Conn) changeCluster(machines []Machine, cmd raftCommand) error {
 	for i := range machines {
 		req = machines[i].append(req)
 	}
-
-	return c.communicate(req, []byte{0})
+	return c.communicate(deadline, req, []byte{0})
 }
 
-func (c *Conn) InitCluster(addrs []*net.TCPAddr) error {
+func (c *Conn) InitCluster(deadline time.Time, addrs []*net.TCPAddr) error {
 	machines := make([]Machine, len(addrs))
 	for i := range machines {
 		machines[i] = NewInitialMachine(addrs[i])
 	}
-	return c.changeCluster(machines, _CMD_INIT_CLUSTER)
+	return c.changeCluster(deadline, machines, _CMD_INIT_CLUSTER)
 }
 
-func (c *Conn) ChangeCluster(machines []Machine) error {
-	return c.changeCluster(machines, _CMD_CHANGE_CLUSTER)
+func (c *Conn) ChangeCluster(deadline time.Time, machines []Machine) error {
+	return c.changeCluster(deadline, machines, _CMD_CHANGE_CLUSTER)
 }
 
-func (c *Conn) Leader() (string, error) {
+func (c *Conn) Leader(deadline time.Time) (string, error) {
 	req := []byte{byte(_CMD_LEADER)}
 	res := make([]byte, 16+2+2)
-	err := c.communicate(req, res)
+	err := c.communicate(deadline, req, res)
 	if err != nil {
 		return "", err
 	}
@@ -150,10 +142,10 @@ func (c *Conn) Leader() (string, error) {
 	return addr.String(), nil
 }
 
-func (c *Conn) Cluster() (Cluster, error) {
+func (c *Conn) Cluster(deadline time.Time) (Cluster, error) {
 	req := []byte{byte(_CMD_CLUSTER)}
 	res := make([]byte, 1+7+8+8)
-	err := c.communicate(req, res)
+	err := c.bufferCommunicate(deadline, req, res)
 	if err != nil {
 		return Cluster{}, err
 	}
@@ -162,7 +154,7 @@ func (c *Conn) Cluster() (Cluster, error) {
 	size := binary.LittleEndian.Uint64(res[8:])
 	version := binary.LittleEndian.Uint64(res[8+8:])
 	bin := make([]byte, size)
-	err = c.read(bin)
+	err = c.bufferRead(bin)
 	if err != nil {
 		return Cluster{}, fmt.Errorf("read machines failed: %w", err)
 	}
@@ -175,4 +167,8 @@ func (c *Conn) Cluster() (Cluster, error) {
 	}
 
 	return Cluster{ClusterType(_type), version, machines}, nil
+}
+
+func (c *Conn) Close() {
+	c.conn.Close()
 }

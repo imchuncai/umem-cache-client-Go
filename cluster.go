@@ -105,7 +105,7 @@ func (c *Cluster) rebuild(version uint64) {
 			addrs[i] = c.members[i].address
 		}
 
-		leader, cluster, authority, _ := leaderClusterAuthority(time.Time{}, addrs, c.config.TLSConfig)
+		leader, cluster, authority, _ := leaderClusterAuthority(c.config.deadline(), addrs, c.config.TLSConfig)
 
 		// a cluster member is not working well, but cluster is not detected that yet.
 		// we should not make the decision to rebuild authority.

@@ -6,44 +6,44 @@ package proto
 import (
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
+	"net"
 	"time"
 )
 
 type AuthorityConn struct {
-	conn *Conn
+	conn net.Conn
+}
+
+func authority(deadline time.Time, conn net.Conn) error {
+	req := []byte{byte(_CMD_AUTHORITY)}
+	res := make([]byte, 8+8)
+	return communicate(deadline, conn, req, res)
 }
 
 func DialAuthority(deadline time.Time, address string, config *tls.Config) (*AuthorityConn, error) {
-	c, err := Dial(deadline, address, config)
+	conn, err := dial(deadline, address, config)
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.SetDeadline(deadline)
+	err = authority(deadline, conn)
 	if err != nil {
-		c.Close()
-		return nil, err
+		conn.Close()
+		return nil, fmt.Errorf("request authority failed: %w", err)
 	}
 
-	req := []byte{byte(_CMD_AUTHORITY)}
-	res := make([]byte, 8+8)
-	err = c.communicate(req, res)
+	err = conn.SetReadDeadline(time.Time{})
 	if err != nil {
-		c.Close()
-		return nil, err
+		conn.Close()
+		return nil, fmt.Errorf("set read deadline failed: %w", err)
 	}
 
-	err = c.setReadDeadline(time.Time{})
-	if err != nil {
-		c.Close()
-		return nil, err
-	}
-
-	return &AuthorityConn{c}, nil
+	return &AuthorityConn{conn}, nil
 }
 
 func (c *AuthorityConn) RequestPermission(deadline time.Time, n int) error {
-	err := c.conn.setWriteDeadline(deadline)
+	err := c.conn.SetWriteDeadline(deadline)
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,8 @@ func (c *AuthorityConn) RequestPermission(deadline time.Time, n int) error {
 	if n > 0 {
 		buff = append(buff, byte(n))
 	}
-	return c.conn.write(buff)
+	_, err = c.conn.Write(buff)
+	return err
 }
 
 type Approval struct {
@@ -68,7 +69,7 @@ type Approval struct {
 
 func (c *AuthorityConn) RecvApproval() (Approval, error) {
 	data := make([]byte, 8+8)
-	err := c.conn.read(data)
+	_, err := c.conn.Read(data)
 	if err != nil {
 		return Approval{}, err
 	}

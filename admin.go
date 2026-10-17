@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -52,12 +52,7 @@ func AdminInitCluster(deadline time.Time, addresses []string, config *tls.Config
 	}
 	defer conn.Close()
 
-	err = conn.SetDeadline(deadline)
-	if err != nil {
-		return fmt.Errorf(wrapper, err)
-	}
-
-	err = conn.InitCluster(addrs)
+	err = conn.InitCluster(deadline, addrs)
 	if err != nil {
 		return fmt.Errorf(wrapper, err)
 	}
@@ -145,12 +140,7 @@ func AdminChangeCluster(deadline time.Time, fromAddresses, toAddresses []string,
 	}
 	defer conn.Close()
 
-	err = conn.SetDeadline(deadline)
-	if err != nil {
-		return err
-	}
-
-	err = conn.ChangeCluster(machines)
+	err = conn.ChangeCluster(deadline, machines)
 	if err != nil {
 		return fmt.Errorf("change cluster failed: %w", err)
 	}
@@ -199,12 +189,7 @@ func cluster(deadline time.Time, address string, config *tls.Config) (proto.Clus
 	}
 	defer conn.Close()
 
-	err = conn.SetDeadline(deadline)
-	if err != nil {
-		return proto.Cluster{}, err
-	}
-
-	cluster, err := conn.Cluster()
+	cluster, err := conn.Cluster(deadline)
 	if err != nil {
 		return proto.Cluster{}, fmt.Errorf("request cluster failed: %w", err)
 	}
@@ -242,11 +227,7 @@ func AdminLeader(deadline time.Time, address string, config *tls.Config) (string
 	}
 	defer conn.Close()
 
-	err = conn.SetDeadline(deadline)
-	if err != nil {
-		return "", err
-	}
-	return conn.Leader()
+	return conn.Leader(deadline)
 }
 
 func AdminCluster(deadline time.Time, address string, config *tls.Config) (proto.Cluster, error) {

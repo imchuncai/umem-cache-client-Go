@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"time"
@@ -22,55 +23,56 @@ var (
 	ErrFallbackGet = fmt.Errorf("%w: fallback get failed", ErrClientSide)
 )
 
-type _CMD byte
+const _DEFAULT_BUFFER_SIZE = 16 << 10
+
+type _CacheCMD byte
 
 const (
-	_CMD_GET_OR_SET _CMD = iota
+	_CMD_GET_OR_SET _CacheCMD = iota
 	_CMD_DEL
 	_CMD_STATS
 )
 
 type CacheConn struct {
+	conn   net.Conn
+	reader *bufio.Reader
 	writer *bufio.Writer
-	conn   *Conn
+}
+
+func connect(deadline time.Time, conn net.Conn, threadID uint32) error {
+	req := make([]byte, 4+4)
+	req[0] = byte(_CMD_CONNECT)
+	binary.LittleEndian.PutUint32(req[4:], threadID)
+	return communicate(deadline, conn, req, []byte{0})
 }
 
 func DialCache(deadline time.Time, address string, threadID uint32, config *tls.Config) (*CacheConn, error) {
-	conn, err := Dial(deadline, address, config)
+	conn, err := dial(deadline, address, config)
 	if err != nil {
 		return nil, fmt.Errorf("dial failed: %w", err)
 	}
 
-	err = conn.SetDeadline(deadline)
+	err = connect(deadline, conn, threadID)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("set deadline failed: %w", err)
+		return nil, fmt.Errorf("request connect failed: %w", err)
 	}
 
-	err = conn.connect(threadID)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("connect thread failed: %w", err)
+	var writer *bufio.Writer
+	if config != nil {
+		writer = bufio.NewWriterSize(conn, _DEFAULT_BUFFER_SIZE)
 	}
-
-	if config == nil {
-		return &CacheConn{nil, conn}, nil
-	}
-
-	return &CacheConn{bufio.NewWriterSize(conn.v, DEFAULT_BUFFER_SIZE), conn}, nil
+	return &CacheConn{conn, bufio.NewReaderSize(conn, _DEFAULT_BUFFER_SIZE), writer}, nil
 }
 
 func (c *CacheConn) SetDeadline(deadline time.Time) error {
 	return c.conn.SetDeadline(deadline)
 }
 
-func (c *CacheConn) read(buff []byte) error {
-	return c.conn.read(buff)
-}
-
 func (c *CacheConn) writev(buffers net.Buffers) error {
 	if c.writer == nil {
-		return c.conn.writev(buffers)
+		_, err := buffers.WriteTo(c.conn)
+		return err
 	}
 
 	for _, buff := range buffers {
@@ -86,11 +88,27 @@ func (c *CacheConn) writev(buffers net.Buffers) error {
 	return nil
 }
 
-func (c *CacheConn) discard(n int) error {
-	return c.conn.discard(n)
+func (c *CacheConn) write(b []byte) error {
+	_, err := c.conn.Write(b)
+	return err
 }
 
-func (c *CacheConn) writeCMD(cmd _CMD, key []byte) error {
+func (c *CacheConn) read(b []byte) error {
+	_, err := c.conn.Read(b)
+	return err
+}
+
+func (c *CacheConn) bufferRead(b []byte) error {
+	_, err := io.ReadFull(c.reader, b)
+	return err
+}
+
+func (c *CacheConn) bufferDiscard(n int) error {
+	_, err := c.reader.Discard(n)
+	return err
+}
+
+func (c *CacheConn) writeCMD(cmd _CacheCMD, key []byte) error {
 	if len(key) > math.MaxUint8 {
 		return ErrBadKeySize
 	}
@@ -99,12 +117,14 @@ func (c *CacheConn) writeCMD(cmd _CMD, key []byte) error {
 }
 
 func (c *CacheConn) get(key []byte) ([]byte, error) {
-	if err := c.writeCMD(_CMD_GET_OR_SET, key); err != nil {
+	err := c.writeCMD(_CMD_GET_OR_SET, key)
+	if err != nil {
 		return nil, fmt.Errorf("write cmd failed: %w", err)
 	}
 
 	res := make([]byte, 8+1)
-	if err := c.read(res); err != nil {
+	err = c.bufferRead(res)
+	if err != nil {
 		return nil, fmt.Errorf("read cmd response failed: %w", err)
 	}
 
@@ -114,7 +134,8 @@ func (c *CacheConn) get(key []byte) ([]byte, error) {
 
 	size := binary.LittleEndian.Uint64(res)
 	val := make([]byte, size)
-	if err := c.read(val); err != nil {
+	err = c.bufferRead(val)
+	if err != nil {
 		return nil, fmt.Errorf("read value failed: %w", err)
 	}
 	return val, nil
@@ -145,7 +166,8 @@ func (c *CacheConn) GetOrSet(key []byte, get FallbackGetFunc) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", ErrFallbackGet, err)
 	}
 
-	if err := c.set(val); err != nil {
+	err = c.set(val)
+	if err != nil {
 		return val, fmt.Errorf("set failed: %w", err)
 	}
 	return val, nil
@@ -157,7 +179,8 @@ func (c *CacheConn) Del(key []byte) error {
 		return fmt.Errorf("write cmd failed: %w", err)
 	}
 
-	if err := c.read([]byte{0}); err != nil {
+	err = c.read([]byte{0})
+	if err != nil {
 		return fmt.Errorf("read failed: %w", err)
 	}
 	return nil
@@ -181,14 +204,15 @@ type Stats struct {
 }
 
 func (c *CacheConn) Stats() Stats {
-	err := c.writeCMD(_CMD_STATS, nil)
+	err := c.write([]byte{byte(_CMD_STATS), 0})
 	if err != nil {
 		return Stats{Error: fmt.Errorf("write cmd failed: %w", err)}
 	}
 
 	const sizeV1 = 76
 	res := make([]byte, 4+sizeV1)
-	if err := c.read(res); err != nil {
+	err = c.bufferRead(res)
+	if err != nil {
 		return Stats{Error: fmt.Errorf("read failed: %w", err)}
 	}
 	size := binary.LittleEndian.Uint32(res)
@@ -208,7 +232,7 @@ func (c *CacheConn) Stats() Stats {
 	stats.Dels = binary.LittleEndian.Uint64(res[72:])
 
 	if size > sizeV1 {
-		err := c.discard(int(size) - sizeV1)
+		err := c.bufferDiscard(int(size) - sizeV1)
 		if err != nil {
 			return Stats{Error: fmt.Errorf("discard failed: %w", err)}
 		}
