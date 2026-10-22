@@ -5,226 +5,126 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
-	"math/bits"
+	"net/netip"
 	"os"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
 	"github.com/twmb/murmur3"
 )
 
-var errClosed = errors.New("cluster is closed")
-
-type Cluster struct {
-	config Config
-
-	mu       sync.RWMutex
-	closed   bool
-	updating bool
-
-	version   uint64
-	leader    string
-	authority *authority
-	members   []member
-}
-
 // annoying stupid DeadlineExceeded
 func errIsIOTimeout(err error) bool {
 	return errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func NewCluster(addresses []string, config Config) (*Cluster, error) {
+type Cluster struct {
+	proto.Cluster
+	Leader netip.AddrPort
+}
+
+type ClusterClient struct {
+	config Config
+
+	curr atomic.Pointer[_ClusterClient]
+	next atomic.Pointer[_ClusterClient]
+}
+
+func NewClusterClient(addresses []string, config Config) (*ClusterClient, error) {
 	err := config.check()
 	if err != nil {
 		return nil, err
 	}
 
 	deadline := config.deadline()
-	leader, cluster, authority, err := leaderClusterAuthority(deadline, addresses, config.TLSConfig)
+	cluster, authority, err := clusterAuthority(deadline, addresses, config.TLSConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Cluster{
-		config:    config,
-		closed:    false,
-		updating:  false,
-		version:   cluster.Version,
-		leader:    leader,
-		authority: newAuthority(authority),
-		members:   newMembers(cluster.Machines, config),
-	}, nil
+	curr := &_ClusterClient{
+		nil,
+		newAuthority(authority),
+		cluster,
+		newMembers(cluster.Machines, config),
+	}
+	c := &ClusterClient{config: config}
+	c.curr.Store(curr)
+	c.next.Store(curr)
+	return c, nil
 }
 
-func leaderClusterAuthority(deadline time.Time, addresses []string, config *tls.Config) (string, proto.Cluster, *proto.AuthorityConn, error) {
-	for {
-		leader, cluster, err := AdminLeaderCluster(deadline, addresses, config)
-		if err != nil {
-			return "", proto.Cluster{}, nil, err
-		}
-
-		var authority *proto.AuthorityConn
-		authority, err = proto.DialAuthority(deadline, leader, config)
-		if err == nil {
-			return leader, cluster, authority, nil
-		}
-		if errIsIOTimeout(err) {
-			return "", proto.Cluster{}, nil, err
-		}
-
-		nap()
-	}
-}
-
-func (c *Cluster) rebuild(version uint64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed || c.updating || version != c.version {
-		return
+func (c *ClusterClient) rebuild(client *_ClusterClient) <-chan struct{} {
+	ch := make(chan struct{})
+	next := &_ClusterClient{updating: ch}
+	if !c.next.CompareAndSwap(client, next) {
+		return c.next.Load().updating
 	}
 
-	c.updating = true
 	go func() {
-		defer func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-
-			c.updating = false
-			if c.closed {
-				c.__close()
-			}
-		}()
-
-		addrs := make([]string, len(c.members))
-		for i := range c.members {
-			addrs[i] = c.members[i].address
+		next.Init(client, c.config)
+		if !c.curr.CompareAndSwap(client, next) {
+			next.Close()
 		}
-
-		leader, cluster, authority, _ := leaderClusterAuthority(c.config.deadline(), addrs, c.config.TLSConfig)
-
-		// a cluster member is not working well, but cluster is not detected that yet.
-		// we should not make the decision to rebuild authority.
-		if cluster.Version == c.version && leader == c.leader && !c.authority.Closed() {
-			return
-		}
-
-		c.leader = leader
-		c.authority.Close()
-		c.authority = newAuthority(authority)
-
-		if c.version != cluster.Version {
-			c.version = cluster.Version
-			for i := range c.members {
-				c.members[i].Close()
-			}
-			c.members = newMembers(cluster.Machines, c.config)
-		}
+		close(ch)
 	}()
+	return ch
 }
 
-func (c *Cluster) auth() (uint64, *authority, []member, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.closed {
-		return 0, nil, nil, errClosed
-	}
-
-	if c.updating {
-		return 0, nil, nil, fmt.Errorf("cluster is updating")
-	}
-
-	return c.version, c.authority, c.members, nil
-}
-
-func (c *Cluster) doOnce(ctx context.Context, deadline time.Time, h1, h2 uint64, f func(m member, threadID uint64) error) (uint64, error) {
-	version, auth, members, err := c.auth()
-	if err != nil {
-		return 0, err
-	}
-
-	ch, err := auth.RequestPermission(deadline)
-	if err != nil {
-		return version, err
-	}
-
-	m := members[h2&uint64(len(members)-1)]
-	hi, _ := bits.Mul64(h1, uint64(c.config.ThreadNR))
-	err = f(m, hi)
-	if err != nil {
-		return version, err
-	}
-
-	select {
-	case <-ctx.Done():
-		return 0, os.ErrDeadlineExceeded
-	case v2 := <-ch:
-		if v2 == version {
-			return 0, nil
-		}
-		return version, fmt.Errorf("cluster version changed from : %d to %d", version, v2)
-	}
-}
-
-func (c *Cluster) do(deadline time.Time, key []byte, f func(m member, threadID uint64) error) error {
+func (c *ClusterClient) do(f func(ctx context.Context, deadline time.Time, client *_ClusterClient) error) error {
+	deadline := c.config.deadline()
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
-	h1, h2 := murmur3.SeedSum128(74, 74, key)
-	for ctx.Err() == nil {
-		version, err := c.doOnce(ctx, deadline, h1, h2, f)
-		if err == nil || errIsIOTimeout(err) || errors.Is(err, proto.ErrClientSide) || errors.Is(err, errClosed) {
+	for {
+		client := c.curr.Load()
+		if client == nil {
+			return errors.New("cluster is closed")
+		}
+
+		err := f(ctx, deadline, client)
+		if err == nil || errors.Is(err, proto.ErrClientSide) {
 			return err
 		}
 
-		nap()
-		c.rebuild(version)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.rebuild(client):
+		}
 	}
-	return ctx.Err()
 }
 
-func (c *Cluster) deadline() time.Time {
-	return c.config.deadline()
-}
-
-func (c *Cluster) Del(key []byte) error {
-	deadline := c.deadline()
-
-	return c.do(deadline, key, func(m member, threadID uint64) error {
-		return m.Del(deadline, threadID, key)
-	})
-}
-
-func (c *Cluster) GetOrSet(key []byte, fallbackGet proto.FallbackGetFunc) (val []byte, err error) {
-	deadline := c.deadline()
-
-	err = c.do(deadline, key, func(m member, threadID uint64) error {
-		val, err = m.GetOrSet(deadline, threadID, key, fallbackGet)
+// Note: get is guaranteed called at most once
+func (c *ClusterClient) GetOrSet(key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
+	h1, h2 := murmur3.SeedSum128(74, 74, key)
+	err = c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
+		val, err = client.GetOrSet(ctx, deadline, c.config.ThreadNR, key, h1, h2, get)
 		return err
 	})
 	return
 }
 
-func (c *Cluster) __close() {
-	c.authority.Close()
-	for _, m := range c.members {
-		m.Close()
-	}
+func (c *ClusterClient) Del(key []byte) error {
+	h1, h2 := murmur3.SeedSum128(74, 74, key)
+	return c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
+		return client.Del(ctx, deadline, c.config.ThreadNR, key, h1, h2)
+	})
 }
 
-func (c *Cluster) Close() {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (c *ClusterClient) Cluster() (cluster Cluster, err error) {
+	err = c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
+		cluster, err = client.Cluster(ctx, deadline)
+		return err
+	})
+	return
+}
 
-	if !c.closed {
-		c.closed = true
-		if !c.updating {
-			c.__close()
-		}
+func (c *ClusterClient) Close() {
+	client := c.curr.Swap(nil)
+	if client != nil {
+		client.Close()
 	}
 }

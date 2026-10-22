@@ -6,6 +6,7 @@ package proto
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 )
 
 type ClusterType byte
@@ -41,6 +42,10 @@ type Cluster struct {
 	Type     ClusterType
 	Version  uint64
 	Machines []Machine
+}
+
+func (c Cluster) Clone() Cluster {
+	return Cluster{c.Type, c.Version, slices.Clone(c.Machines)}
 }
 
 func (c Cluster) Match(addrs []netip.AddrPort) error {

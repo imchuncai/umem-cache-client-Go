@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -31,7 +31,7 @@ func testElectionOnChangeAvailable(param TestParam) func(t *testing.T) {
 		}
 
 		availabilities := []bool{false, true, true, false, true, true, true, true}
-		err = ClusterCheckAvailable(addresses, availabilities, param.Config.TLSConfig)
+		err = ClusterCheckAvailable(addresses, availabilities, param.Config)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +69,7 @@ func testElectionOnGrowChangeAvailable(param TestParam) func(t *testing.T) {
 		}
 
 		availabilities := []bool{false, true, true, false, true, true, true, true}
-		err = ClusterCheckAvailable(to, availabilities, param.Config.TLSConfig)
+		err = ClusterCheckAvailable(to, availabilities, param.Config)
 		if err != nil {
 			t.Fatal(err)
 		}

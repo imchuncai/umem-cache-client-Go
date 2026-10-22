@@ -124,23 +124,21 @@ func (c *Conn) ChangeCluster(deadline time.Time, machines []Machine) error {
 	return c.changeCluster(deadline, machines, _CMD_CHANGE_CLUSTER)
 }
 
-func (c *Conn) Leader(deadline time.Time) (string, error) {
+func (c *Conn) Leader(deadline time.Time) (netip.AddrPort, error) {
 	req := []byte{byte(_CMD_LEADER)}
 	res := make([]byte, 16+2+2)
 	err := c.communicate(deadline, req, res)
 	if err != nil {
-		return "", err
+		return netip.AddrPort{}, err
 	}
 
 	if res[18] == 1 {
-		return "", errors.New("lost leader")
+		return netip.AddrPort{}, errors.New("lost leader")
 	}
 
-	addr := new(net.TCPAddr)
-	addr.IP = make([]byte, 16)
-	copy(addr.IP, res)
-	addr.Port = int(binary.BigEndian.Uint16(res[16:]))
-	return addr.String(), nil
+	ip := netip.AddrFrom16([16]byte(res[:16]))
+	port := binary.BigEndian.Uint16(res[16:])
+	return netip.AddrPortFrom(ip, port), nil
 }
 
 func (c *Conn) Cluster(deadline time.Time) (Cluster, error) {

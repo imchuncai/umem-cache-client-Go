@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -50,7 +50,7 @@ func exampleClient() (*Client, error) {
 	return New("[::1]:10047", config)
 }
 
-func exampleCluster() (*Cluster, error) {
+func exampleCluster() (*ClusterClient, error) {
 	config, err := exampleConfig()
 	if err != nil {
 		return nil, fmt.Errorf("get example config failed: %w", err)
@@ -67,7 +67,7 @@ func exampleCluster() (*Cluster, error) {
 		return nil, fmt.Errorf("init cluster failed: %w", err)
 	}
 
-	return NewCluster([]string{
+	return NewClusterClient([]string{
 		"[::1]:10047",
 		"[::1]:10049",
 		"[::1]:10051",
@@ -131,7 +131,7 @@ func ExampleClient_Del() {
 	// <nil>
 }
 
-func ExampleCluster_GetOrSet() {
+func ExampleClusterClient_GetOrSet() {
 	cluster, err := exampleCluster()
 	if err != nil {
 		log.Fatal(err)
@@ -142,7 +142,7 @@ func ExampleCluster_GetOrSet() {
 	// Output: umem-cache
 }
 
-func ExampleCluster_Del() {
+func ExampleClusterClient_Del() {
 	cluster, err := exampleCluster()
 	if err != nil {
 		log.Fatal(err)

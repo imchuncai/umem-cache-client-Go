@@ -39,6 +39,7 @@ func (c *Client) deadline() time.Time {
 	return time.Now().Add(c.timeout)
 }
 
+// Note: get is guaranteed called at most once
 func (c *Client) GetOrSet(key []byte, get proto.FallbackGetFunc) ([]byte, error) {
 	return c.dispatch(key).GetOrSet(c.deadline(), key, get)
 }

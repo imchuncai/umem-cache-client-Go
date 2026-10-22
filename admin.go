@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"net/netip"
 	"time"
@@ -19,10 +18,10 @@ func nap() {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func verifyLeader(deadline time.Time, addrs []string, config *tls.Config) error {
+func verifyLeader(deadline time.Time, addrs []netip.AddrPort, config *tls.Config) error {
 	for i := 0; i < len(addrs); i++ {
 		addr := addrs[i]
-		leader, err := AdminLeader(deadline, addr, config)
+		leader, err := AdminLeader(deadline, addr.String(), config)
 		if err != nil {
 			if errIsIOTimeout(err) {
 				return fmt.Errorf("request leader failed: %w", err)
@@ -58,14 +57,14 @@ func AdminInitCluster(deadline time.Time, addresses []string, config *tls.Config
 		return fmt.Errorf(wrapper, err)
 	}
 
-	err = verifyLeader(deadline, addresses, config)
+	err = verifyLeader(deadline, addrs, config)
 	if err != nil {
 		return fmt.Errorf(wrapper, fmt.Errorf("verify leader failed: %w", err))
 	}
 	return nil
 }
 
-func adjustMachines(cluster proto.Cluster, to []netip.AddrPort) []proto.Machine {
+func adjustMachines(cluster Cluster, to []netip.AddrPort) []proto.Machine {
 	n := len(cluster.Machines)
 	machines := make([]proto.Machine, n)
 	for i := 0; i < n; i++ {
@@ -78,7 +77,7 @@ func adjustMachines(cluster proto.Cluster, to []netip.AddrPort) []proto.Machine 
 	return machines
 }
 
-func shrinkMachines(cluster proto.Cluster, to []netip.AddrPort) ([]proto.Machine, error) {
+func shrinkMachines(cluster Cluster, to []netip.AddrPort) ([]proto.Machine, error) {
 	n := len(to)
 	for i := 0; i < n; i++ {
 		if cluster.Machines[i].Addr != to[i] {
@@ -88,7 +87,7 @@ func shrinkMachines(cluster proto.Cluster, to []netip.AddrPort) ([]proto.Machine
 	return cluster.Machines[:n], nil
 }
 
-func growMachines(cluster proto.Cluster, to []netip.AddrPort) ([]proto.Machine, error) {
+func growMachines(cluster Cluster, to []netip.AddrPort) ([]proto.Machine, error) {
 	n := len(cluster.Machines)
 	for i := 0; i < n; i++ {
 		if cluster.Machines[i].Addr != to[i] {
@@ -115,7 +114,7 @@ func AdminChangeCluster(deadline time.Time, fromAddresses, toAddresses []string,
 		return fmt.Errorf("resolve to addresses failed: %w", err)
 	}
 
-	leader, cluster, err := AdminLeaderCluster(deadline, fromAddresses, config)
+	cluster, err := cluster(deadline, fromAddresses, config)
 	if err != nil {
 		return err
 	}
@@ -135,7 +134,7 @@ func AdminChangeCluster(deadline time.Time, fromAddresses, toAddresses []string,
 		return err
 	}
 
-	conn, err := proto.Dial(deadline, leader, config)
+	conn, err := proto.Dial(deadline, cluster.Leader.String(), config)
 	if err != nil {
 		return fmt.Errorf("dial leader failed: %w", err)
 	}
@@ -155,7 +154,7 @@ func AdminClusterMatch(deadline time.Time, addresses []string, config *tls.Confi
 	}
 
 	for {
-		_, cluster, err := AdminLeaderCluster(deadline, addresses, config)
+		cluster, err := cluster(deadline, addresses, config)
 		if err != nil {
 			return err
 		}
@@ -166,76 +165,21 @@ func AdminClusterMatch(deadline time.Time, addresses []string, config *tls.Confi
 	}
 }
 
-func leaderRandom(deadline time.Time, addrs []string, config *tls.Config) (string, error) {
-	cp := make([]string, len(addrs))
-	copy(cp, addrs)
-
-	rand.Shuffle(len(cp), func(a, b int) {
-		cp[a], cp[b] = cp[b], cp[a]
-	})
-
-	for _, addr := range cp {
-		leader, err := AdminLeader(deadline, addr, config)
-		if err == nil || errIsIOTimeout(err) {
-			return leader, err
-		}
-	}
-	return "", errors.New("lost leader")
-}
-
-func cluster(deadline time.Time, address string, config *tls.Config) (proto.Cluster, error) {
+func AdminLeader(deadline time.Time, address string, config *tls.Config) (netip.AddrPort, error) {
 	conn, err := proto.Dial(deadline, address, config)
 	if err != nil {
-		return proto.Cluster{}, fmt.Errorf("dial:%s failed: %w", address, err)
-	}
-	defer conn.Close()
-
-	cluster, err := conn.Cluster(deadline)
-	if err != nil {
-		return proto.Cluster{}, fmt.Errorf("request cluster failed: %w", err)
-	}
-	return cluster, nil
-}
-
-func AdminLeaderCluster(deadline time.Time, addresses []string, config *tls.Config) (string, proto.Cluster, error) {
-	do := func() (string, proto.Cluster, error) {
-		leader, err := leaderRandom(deadline, addresses, config)
-		if err != nil {
-			return "", proto.Cluster{}, fmt.Errorf("request leader failed: %w", err)
-		}
-
-		cluster, err := cluster(deadline, leader, config)
-		if err != nil {
-			return "", proto.Cluster{}, err
-		}
-
-		return leader, cluster, nil
-	}
-
-	for {
-		leader, cluster, err := do()
-		if err == nil || errIsIOTimeout(err) {
-			return leader, cluster, err
-		}
-		nap()
-	}
-}
-
-func AdminLeader(deadline time.Time, address string, config *tls.Config) (string, error) {
-	conn, err := proto.Dial(deadline, address, config)
-	if err != nil {
-		return "", fmt.Errorf("dial failed: %w", err)
+		return netip.AddrPort{}, fmt.Errorf("dial failed: %w", err)
 	}
 	defer conn.Close()
 
 	return conn.Leader(deadline)
 }
 
-func AdminCluster(deadline time.Time, address string, config *tls.Config) (proto.Cluster, error) {
-	_, err := net.ResolveTCPAddr("tcp6", address)
+func AdminCluster(deadline time.Time, address string, config *tls.Config) (Cluster, error) {
+	addr, err := net.ResolveTCPAddr("tcp6", address)
 	if err != nil {
-		return proto.Cluster{}, fmt.Errorf("resolve addresses failed: %w", err)
+		return Cluster{}, fmt.Errorf("resolve addresses failed: %w", err)
 	}
 
-	return cluster(deadline, address, config)
+	return __cluster(deadline, addr.AddrPort(), config)
 }

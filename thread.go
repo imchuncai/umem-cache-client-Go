@@ -112,60 +112,21 @@ func (t *thread) _return(c *proto.CacheConn) {
 	}
 }
 
-func (t *thread) __getOrSet(conn *proto.CacheConn, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
-	val, err = conn.GetOrSet(key, get)
+// Note: don't worry about proto.ErrBadKeySize, it should never happen, we close the conn any way.
+func (t *thread) __do(conn *proto.CacheConn, f func(conn *proto.CacheConn) (retry bool, err error)) (retry bool, err error) {
+	retry, err = f(conn)
 	if err == nil {
 		t._return(conn)
 	} else {
 		conn.Close()
-		if val != nil {
-			err = nil
-		}
 	}
 	return
 }
 
-func (t *thread) GetOrSet(deadline time.Time, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
-	err = t.acquireTicket(deadline)
-	if err != nil {
-		return
-	}
-	defer t.releaseTicket()
-
-	conn, err := t.dispatch(deadline)
-	if err != nil {
-		return nil, fmt.Errorf("dispatch failed: %w", err)
-	}
-
-	if conn != nil {
-		val, err = t.__getOrSet(conn, key, get)
-		if err == nil {
-			return
-		}
-	}
-
-	conn, err = proto.DialCache(deadline, t.route, t.id, t.config)
-	if err != nil {
-		return nil, fmt.Errorf("dial cache: %s %d failed: %w", t.route, t.id, err)
-	}
-
-	return t.__getOrSet(conn, key, get)
-}
-
-func (t *thread) __del(conn *proto.CacheConn, key []byte) error {
-	err := conn.Del(key)
-	if err == nil {
-		t._return(conn)
-	} else {
-		conn.Close()
-	}
-	return err
-}
-
-func (t *thread) Del(deadline time.Time, key []byte) error {
+func (t *thread) do(deadline time.Time, f func(conn *proto.CacheConn) (retry bool, err error)) error {
 	err := t.acquireTicket(deadline)
 	if err != nil {
-		return err
+		return fmt.Errorf("acquire ticket failed: %w", err)
 	}
 	defer t.releaseTicket()
 
@@ -174,53 +135,45 @@ func (t *thread) Del(deadline time.Time, key []byte) error {
 		return fmt.Errorf("dispatch failed: %w", err)
 	}
 
-	if conn != nil && t.__del(conn, key) == nil {
-		return nil
+	if conn != nil {
+		retry, err := t.__do(conn, f)
+		if err == nil || !retry {
+			return err
+		}
 	}
 
 	conn, err = proto.DialCache(deadline, t.route, t.id, t.config)
 	if err != nil {
 		return fmt.Errorf("dial cache: %s %d failed: %w", t.route, t.id, err)
 	}
-
-	return t.__del(conn, key)
+	_, err = t.__do(conn, f)
+	return err
 }
 
-func (t *thread) __stats(conn *proto.CacheConn) proto.Stats {
-	stats := conn.Stats()
-	if stats.Error == nil {
-		t._return(conn)
-	} else {
-		conn.Close()
+func (t *thread) GetOrSet(deadline time.Time, key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
+	err = t.do(deadline, func(conn *proto.CacheConn) (bool, error) {
+		val, err = conn.GetOrSet(key, get)
+		return val == nil && !errors.Is(err, proto.ErrClientSide), err
+	})
+	if val != nil {
+		err = nil
 	}
-	return stats
+	return
 }
 
-func (t *thread) Stats(deadline time.Time) proto.Stats {
-	err := t.acquireTicket(deadline)
-	if err != nil {
-		return proto.Stats{Error: err}
-	}
-	defer t.releaseTicket()
+func (t *thread) Del(deadline time.Time, key []byte) error {
+	return t.do(deadline, func(conn *proto.CacheConn) (bool, error) {
+		err := conn.Del(key)
+		return !errors.Is(err, proto.ErrClientSide), err
+	})
+}
 
-	conn, err := t.dispatch(deadline)
-	if err != nil {
-		return proto.Stats{Error: fmt.Errorf("dispatch failed: %w", err)}
-	}
-
-	if conn != nil {
-		stats := t.__stats(conn)
-		if stats.Error == nil {
-			return stats
-		}
-	}
-
-	conn, err = proto.DialCache(deadline, t.route, t.id, t.config)
-	if err != nil {
-		return proto.Stats{Error: fmt.Errorf("dial cache: %s %d failed: %w", t.route, t.id, err)}
-	}
-
-	return t.__stats(conn)
+func (t *thread) Stats(deadline time.Time) (stats proto.Stats) {
+	stats.Error = t.do(deadline, func(conn *proto.CacheConn) (bool, error) {
+		stats = conn.Stats()
+		return true, stats.Error
+	})
+	return
 }
 
 func (t *thread) Close() {

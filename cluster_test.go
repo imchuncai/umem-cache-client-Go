@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -91,7 +93,7 @@ func testClusterBasic(t *testing.T, param TestParam) {
 	}
 	defer machines.Stop()
 
-	cluster, err := NewCluster(ADDRESSES4(), param.Config)
+	cluster, err := NewClusterClient(ADDRESSES4(), param.Config)
 	if err != nil {
 		t.Fatal(fmt.Errorf("new cluster failed: %w", err))
 	}
@@ -117,20 +119,26 @@ func testClusterNotAdmin(param TestParam) func(t *testing.T) {
 	}
 }
 
-func ClusterCheckAvailable(addresses []string, availabilities []bool, config *tls.Config) error {
+func ClusterCheckAvailable(addresses []string, availabilities []bool, config Config) error {
 	_, err := proto.ResolveAddresses(ADDRESSES_ADMIN4())
 	if err != nil {
 		return fmt.Errorf("resolve addresses failed: %w", err)
 	}
 
-	deadline := DEADLINE()
+	client, err := NewClusterClient(addresses, config)
+	if err != nil {
+		return fmt.Errorf("new cluster client failed: %w", err)
+	}
+	defer client.Close()
+
+	ctx, cancel := context.WithDeadline(context.Background(), DEADLINE())
+	defer cancel()
 
 loop:
-	for {
-		nap()
-		_, cluster, err := AdminLeaderCluster(deadline, addresses, config)
+	for ctx.Err() == nil {
+		cluster, err := client.Cluster()
 		if err != nil {
-			return fmt.Errorf("request leader cluster failed: %w", err)
+			return fmt.Errorf("request cluster failed: %w", err)
 		}
 		if cluster.Type.Stable() && len(cluster.Machines) == len(addresses) {
 			for i, m := range cluster.Machines {
@@ -141,6 +149,7 @@ loop:
 			return nil
 		}
 	}
+	return ctx.Err()
 }
 
 func testClusterChangeAvailable(param TestParam) func(t *testing.T) {
@@ -158,7 +167,7 @@ func testClusterChangeAvailable(param TestParam) func(t *testing.T) {
 		}
 
 		availabilities := []bool{true, true, true, false}
-		err = ClusterCheckAvailable(addresses, availabilities, param.Config.TLSConfig)
+		err = ClusterCheckAvailable(addresses, availabilities, param.Config)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -274,9 +283,9 @@ func warmup(deadline time.Time, address string, config *tls.Config) error {
 	}
 
 	big := Case{[]byte{1}, make([]byte, SERVER_MEMORY/THREAD_NR)}
-	val, _ := conn.GetOrSet(big.Key, fallbackGet(big))
-	if val == nil {
-		return fmt.Errorf("get or set big failed: %w", err)
+	val, err := conn.GetOrSet(big.Key, fallbackGet(big))
+	if err == nil || val == nil {
+		return errors.New("get or set big failed")
 	}
 	return nil
 }
@@ -362,7 +371,7 @@ func testClusterElection(param TestParam) func(t *testing.T) {
 		}
 
 		availabilities := []bool{false, true, true, true}
-		err = ClusterCheckAvailable(addresses, availabilities, param.Config.TLSConfig)
+		err = ClusterCheckAvailable(addresses, availabilities, param.Config)
 		if err != nil {
 			t.Fatal(err)
 		}
