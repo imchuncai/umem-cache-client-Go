@@ -16,7 +16,7 @@ type member struct {
 	threads []thread
 }
 
-func newMembers(machines []proto.Machine, conf Config) []member {
+func newMembers(machines []proto.Machine, threadNR uint32, conf Config) []member {
 	var route string
 	for _, m := range machines {
 		if m.Available() {
@@ -31,15 +31,15 @@ func newMembers(machines []proto.Machine, conf Config) []member {
 		if m.Available() {
 			route = m.Addr.String()
 		}
-		members[i].init(m, route, conf)
+		members[i].init(m, route, threadNR, conf)
 	}
 	return members
 }
 
-func (m *member) init(machine proto.Machine, route string, conf Config) {
+func (m *member) init(machine proto.Machine, route string, threadNR uint32, conf Config) {
 	m.version = machine.Version
 	m.address = machine.Addr.String()
-	m.threads = newThreads(route, conf)
+	m.threads = newThreads(route, threadNR, conf)
 }
 
 func (m *member) Close() {

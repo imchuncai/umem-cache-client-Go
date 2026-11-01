@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -57,7 +57,6 @@ func InitTest(t *testing.T) TestParam {
 	param.ExePath = args[0]
 	param.Debug = args[2] != "0"
 	param.Config.Timeout = TIMEOUT
-	param.Config.ThreadNR = THREAD_NR
 	_tls := args[1] != "0"
 	if _tls {
 		cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")

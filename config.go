@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+// Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 package client
 
@@ -11,20 +11,13 @@ import (
 
 type Config struct {
 	Timeout           time.Duration
-	ThreadNR          int
-	MaxConnsPerThread int
+	MaxConnsPerThread uint // 0 for no limit
 	TLSConfig         *tls.Config
 }
 
 func (conf *Config) check() error {
-	if conf.ThreadNR <= 0 {
-		return fmt.Errorf("bad ThreadNR: %d", conf.ThreadNR)
-	}
 	if conf.Timeout <= 0 {
 		return fmt.Errorf("bad Timeout: %d", conf.Timeout)
-	}
-	if conf.MaxConnsPerThread <= 0 {
-		conf.MaxConnsPerThread = 0
 	}
 	return nil
 }

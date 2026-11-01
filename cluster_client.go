@@ -93,7 +93,7 @@ func clusterAuthority(deadline time.Time, addresses []string, config *tls.Config
 	}
 }
 
-func (c *_ClusterClient) Init(old *_ClusterClient, conf Config) {
+func (c *_ClusterClient) Init(old *_ClusterClient, threadNR uint32, conf Config) {
 	addrs := make([]string, len(old.members))
 	for i := range old.members {
 		addrs[i] = old.members[i].address
@@ -121,18 +121,18 @@ func (c *_ClusterClient) Init(old *_ClusterClient, conf Config) {
 			old.authority.Close()
 		}
 	} else {
-		c.members = newMembers(cluster.Machines, conf)
+		c.members = newMembers(cluster.Machines, threadNR, conf)
 		c.authority = newAuthority(authority)
 		old.Close()
 	}
 }
 
-func (c *_ClusterClient) dispatch(threadNR int, h1, h2 uint64) (member, uint64) {
+func (c *_ClusterClient) dispatch(threadNR uint32, h1, h2 uint64) (member, uint64) {
 	threadID, _ := bits.Mul64(h1, uint64(threadNR))
 	return c.members[h2&uint64(len(c.members)-1)], threadID
 }
 
-func (c *_ClusterClient) GetOrSet(ctx context.Context, deadline time.Time, threadNR int, key []byte, h1, h2 uint64, get proto.FallbackGetFunc) ([]byte, error) {
+func (c *_ClusterClient) GetOrSet(ctx context.Context, deadline time.Time, threadNR uint32, key []byte, h1, h2 uint64, get proto.FallbackGetFunc) ([]byte, error) {
 	ch, err := c.authority.RequestPermission(deadline)
 	if err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (c *_ClusterClient) GetOrSet(ctx context.Context, deadline time.Time, threa
 	}
 }
 
-func (c *_ClusterClient) Del(ctx context.Context, deadline time.Time, threadNR int, key []byte, h1, h2 uint64) error {
+func (c *_ClusterClient) Del(ctx context.Context, deadline time.Time, threadNR uint32, key []byte, h1, h2 uint64) error {
 	ch, err := c.authority.RequestPermission(deadline)
 	if err != nil {
 		return err

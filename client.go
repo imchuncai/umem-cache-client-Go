@@ -4,6 +4,8 @@
 package client
 
 import (
+	"crypto/tls"
+	"fmt"
 	"math/bits"
 	"sync"
 	"time"
@@ -18,15 +20,35 @@ type Client struct {
 	threads []thread
 }
 
+func threadNR(deadline time.Time, address string, config *tls.Config) (uint32, error) {
+	conn, err := proto.DialCache(deadline, address, 0, config)
+	if err != nil {
+		return 0, fmt.Errorf("dial: %s thread 0 failed: %w", address, err)
+	}
+	defer conn.Close()
+
+	stats := conn.Stats()
+	if stats.Error != nil {
+		return 0, fmt.Errorf("request stats failed: %w", stats.Error)
+	}
+	return stats.ConfigThreadNR, nil
+}
+
 func New(address string, config Config) (*Client, error) {
 	err := config.check()
 	if err != nil {
 		return nil, err
 	}
 
+	deadline := time.Now().Add(config.Timeout)
+	threadNR, err := threadNR(deadline, address, config.TLSConfig)
+	if err != nil {
+		return nil, fmt.Errorf("get threadNR failed: %w", err)
+	}
+
 	return &Client{
 		timeout: config.Timeout,
-		threads: newThreads(address, config)}, nil
+		threads: newThreads(address, threadNR, config)}, nil
 }
 
 func (c *Client) dispatch(key []byte) *thread {

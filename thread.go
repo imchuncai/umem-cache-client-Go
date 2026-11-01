@@ -24,8 +24,8 @@ type thread struct {
 	idleConns []*proto.CacheConn // nil for closed
 }
 
-func newThreads(route string, config Config) []thread {
-	threads := make([]thread, config.ThreadNR)
+func newThreads(route string, threadNR uint32, config Config) []thread {
+	threads := make([]thread, threadNR)
 	for i := range threads {
 		threads[i].init(route, uint32(i), config)
 	}

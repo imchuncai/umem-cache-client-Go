@@ -32,8 +32,7 @@ func exampleConfig() (Config, error) {
 
 	// Note: set TLSConfig to nil if tls is not enabled
 	return Config{
-		Timeout:  3 * time.Second,
-		ThreadNR: 4,
+		Timeout: 3 * time.Second,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			RootCAs:      caCertPool,

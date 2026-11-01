@@ -6,6 +6,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"sync/atomic"
@@ -26,13 +27,18 @@ type Cluster struct {
 }
 
 type ClusterClient struct {
-	config Config
+	threadNR uint32
+	config   Config
 
 	curr atomic.Pointer[_ClusterClient]
 	next atomic.Pointer[_ClusterClient]
 }
 
 func NewClusterClient(addresses []string, config Config) (*ClusterClient, error) {
+	if len(addresses) == 0 {
+		return nil, errors.New("empty addresses")
+	}
+
 	err := config.check()
 	if err != nil {
 		return nil, err
@@ -44,13 +50,24 @@ func NewClusterClient(addresses []string, config Config) (*ClusterClient, error)
 		return nil, err
 	}
 
+	var _threadNR uint32
+	for _, m := range cluster.Machines {
+		_threadNR, err = threadNR(deadline, m.Addr.String(), config.TLSConfig)
+		if err == nil || errIsIOTimeout(err) {
+			break
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get threadNR failed: %w", err)
+	}
+
 	curr := &_ClusterClient{
 		nil,
 		newAuthority(authority),
 		cluster,
-		newMembers(cluster.Machines, config),
+		newMembers(cluster.Machines, _threadNR, config),
 	}
-	c := &ClusterClient{config: config}
+	c := &ClusterClient{threadNR: _threadNR, config: config}
 	c.curr.Store(curr)
 	c.next.Store(curr)
 	return c, nil
@@ -64,7 +81,7 @@ func (c *ClusterClient) rebuild(client *_ClusterClient) <-chan struct{} {
 	}
 
 	go func() {
-		next.Init(client, c.config)
+		next.Init(client, c.threadNR, c.config)
 		if !c.curr.CompareAndSwap(client, next) {
 			next.Close()
 		}
@@ -101,7 +118,7 @@ func (c *ClusterClient) do(f func(ctx context.Context, deadline time.Time, clien
 func (c *ClusterClient) GetOrSet(key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
 	h1, h2 := murmur3.SeedSum128(74, 74, key)
 	err = c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
-		val, err = client.GetOrSet(ctx, deadline, c.config.ThreadNR, key, h1, h2, get)
+		val, err = client.GetOrSet(ctx, deadline, c.threadNR, key, h1, h2, get)
 		return err
 	})
 	return
@@ -110,7 +127,7 @@ func (c *ClusterClient) GetOrSet(key []byte, get proto.FallbackGetFunc) (val []b
 func (c *ClusterClient) Del(key []byte) error {
 	h1, h2 := murmur3.SeedSum128(74, 74, key)
 	return c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
-		return client.Del(ctx, deadline, c.config.ThreadNR, key, h1, h2)
+		return client.Del(ctx, deadline, c.threadNR, key, h1, h2)
 	})
 }
 

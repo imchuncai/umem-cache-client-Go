@@ -20,17 +20,17 @@ const (
 func TestClient(t *testing.T) {
 	param := InitTest(t)
 
-	client, err := New(MachineAddress(CLIENT_PORT), param.Config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
 	machine, err := RunMachine(CLIENT_PORT, param)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer machine.Stop()
+
+	client, err := New(MachineAddress(CLIENT_PORT), param.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
 
 	t.Run("TooManyConnections", testClientTooManyConnections(param))
 	t.Run("Stats", testClientStats(client))
