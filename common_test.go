@@ -276,7 +276,12 @@ func testBasic(t *testing.T, client ClientInterface, pool Pool) {
 }
 
 func fallbackGet(tc Case) proto.FallbackGetFunc {
+	n := 0
 	return func(key []byte) (val []byte, err error) {
+		n++
+		if n > 1 {
+			return nil, fmt.Errorf("fallback get func is called twice")
+		}
 		return tc.Val, nil
 	}
 }
@@ -310,12 +315,19 @@ func check(tb testing.TB, client ClientInterface, tc Case) {
 
 var errBadFallbackGet = errors.New("bad fallback get")
 
-func badFallbackGet(key []byte) (val []byte, err error) {
-	return nil, errBadFallbackGet
+func badFallbackGet() proto.FallbackGetFunc {
+	n := 0
+	return func(key []byte) (val []byte, err error) {
+		n++
+		if n > 1 {
+			return nil, fmt.Errorf("fallback get func is called twice")
+		}
+		return nil, errBadFallbackGet
+	}
 }
 
 func badGetOrSet(t *testing.T, client ClientInterface, tc Case) {
-	_, err := client.GetOrSet(tc.Key, badFallbackGet)
+	_, err := client.GetOrSet(tc.Key, badFallbackGet())
 	if !errors.Is(err, errBadFallbackGet) {
 		t.Fatalf("want error: %v, got error: %v test case: %v",
 			errBadFallbackGet, err, tc)

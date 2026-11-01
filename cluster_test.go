@@ -134,9 +134,10 @@ func ClusterCheckAvailable(addresses []string, availabilities []bool, config Con
 	ctx, cancel := context.WithDeadline(context.Background(), DEADLINE())
 	defer cancel()
 
+	var cluster Cluster
 loop:
 	for ctx.Err() == nil {
-		cluster, err := client.Cluster()
+		cluster, err = client.Cluster()
 		if err != nil {
 			return fmt.Errorf("request cluster failed: %w", err)
 		}
@@ -149,7 +150,7 @@ loop:
 			return nil
 		}
 	}
-	return ctx.Err()
+	return fmt.Errorf("%w, cluster: %+v", ctx.Err(), cluster)
 }
 
 func testClusterChangeAvailable(param TestParam) func(t *testing.T) {
