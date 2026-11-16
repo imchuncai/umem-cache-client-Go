@@ -34,7 +34,7 @@ type ClusterClient struct {
 	next atomic.Pointer[_ClusterClient]
 }
 
-func NewClusterClient(addresses []string, config Config) (*ClusterClient, error) {
+func NewCluster(addresses []string, config Config) (*ClusterClient, error) {
 	if len(addresses) == 0 {
 		return nil, errors.New("empty addresses")
 	}

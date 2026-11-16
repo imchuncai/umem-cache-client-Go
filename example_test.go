@@ -66,7 +66,7 @@ func exampleCluster() (*ClusterClient, error) {
 		return nil, fmt.Errorf("init cluster failed: %w", err)
 	}
 
-	return NewClusterClient([]string{
+	return NewCluster([]string{
 		"[::1]:10047",
 		"[::1]:10049",
 		"[::1]:10051",

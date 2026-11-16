@@ -93,7 +93,7 @@ func testClusterBasic(t *testing.T, param TestParam) {
 	}
 	defer machines.Stop()
 
-	cluster, err := NewClusterClient(ADDRESSES4(), param.Config)
+	cluster, err := NewCluster(ADDRESSES4(), param.Config)
 	if err != nil {
 		t.Fatal(fmt.Errorf("new cluster failed: %w", err))
 	}
@@ -125,7 +125,7 @@ func ClusterCheckAvailable(addresses []string, availabilities []bool, config Con
 		return fmt.Errorf("resolve addresses failed: %w", err)
 	}
 
-	client, err := NewClusterClient(addresses, config)
+	client, err := NewCluster(addresses, config)
 	if err != nil {
 		return fmt.Errorf("new cluster client failed: %w", err)
 	}
