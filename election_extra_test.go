@@ -58,7 +58,7 @@ func testElectionOnGrowChangeAvailable(param TestParam) func(t *testing.T) {
 
 		deadline := DEADLINE()
 
-		err = AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
+		err = AdminChangeCluster(deadline, to, param.Config.TLSConfig)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func testElectionOnGrowChangeAvailable(param TestParam) func(t *testing.T) {
 	}
 }
 
-func TestVoteWithLog0(t *testing.T) {
+func TestVoteWithChangeLog(t *testing.T) {
 	param := InitTest(t)
 
 	from := ADDRESSES_ADMIN4()
@@ -88,28 +88,11 @@ func TestVoteWithLog0(t *testing.T) {
 	}
 	defer machines.Stop()
 
-	deadline := DEADLINE()
-
 	// make sure only machine[0] can win election
 	err = machines[1].Stop()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, address := range to[2:] {
-		err := warmup(deadline, address, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatalf("warmup: %s failed: %v", address, err)
-		}
-	}
-
-	err = AdminClusterMatch(deadline, to, param.Config.TLSConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeWarmUpCheck(t, to, to[2:], to, param.Config)
 }

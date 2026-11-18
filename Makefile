@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright (C) 2025, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
+# Copyright (C) 2025-2026, Shu De Zheng <imchuncai@gmail.com>. All Rights Reserved.
 
 src = ../umem-cache
 
@@ -60,8 +60,8 @@ test-src:
 	go test -timeout=1m -failfast -p=1 -v -run=TestElectionWithUnstableGrowLog -args $(src)/umem-cache 1 1
 	@echo
 
-	$(MAKE) -s -C $(src) RAFT=1 TLS=1 DEBUG=1 TEST_VOTE_WITH_LOG0=1
-	go test -timeout=1m -failfast -p=1 -v -run=TestVoteWithLog0 -args $(src)/umem-cache 1 1
+	$(MAKE) -s -C $(src) RAFT=1 TLS=1 DEBUG=1 TEST_VOTE_WITH_CHANGE_LOG=1
+	go test -timeout=1m -failfast -p=1 -v -run=TestVoteWithChangeLog -args $(src)/umem-cache 1 1
 
 test-exe:
 	$(call run-test,$(EXE),$(RAFT),$(TLS),$(DEBUG))

@@ -128,7 +128,7 @@ func (c *CacheConn) get(key []byte) ([]byte, error) {
 		return nil, fmt.Errorf("read cmd response failed: %w", err)
 	}
 
-	if res[8] == 1 {
+	if res[8] == 0 {
 		return nil, nil
 	}
 

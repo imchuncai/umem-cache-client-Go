@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -136,7 +137,14 @@ func (c *ClusterClient) Cluster() (cluster Cluster, err error) {
 		cluster, err = client.Cluster(ctx, deadline)
 		return err
 	})
-	return
+	return Cluster{
+		Cluster: proto.Cluster{
+			cluster.Type,
+			cluster.Version,
+			slices.Clone(cluster.Machines),
+		},
+		Leader: cluster.Leader,
+	}, err
 }
 
 func (c *ClusterClient) Close() {

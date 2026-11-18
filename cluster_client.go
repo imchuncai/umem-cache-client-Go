@@ -54,7 +54,7 @@ func cluster(deadline time.Time, addresses []string, config *tls.Config) (Cluste
 		var leader netip.AddrPort
 		var err error
 		for _, addr := range cp {
-			leader, err = AdminLeader(deadline, addr, config)
+			leader, err = __leader(deadline, addr, config)
 			if err == nil {
 				break
 			}
@@ -88,8 +88,6 @@ func clusterAuthority(deadline time.Time, addresses []string, config *tls.Config
 		if errIsIOTimeout(err) {
 			return Cluster{}, nil, err
 		}
-
-		nap()
 	}
 }
 

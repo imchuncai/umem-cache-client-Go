@@ -18,7 +18,7 @@ func powerOf2(n uint) bool {
 func ResolveAddresses(addresses []string) ([]netip.AddrPort, error) {
 	n := uint(len(addresses))
 	if n < 4 || n > math.MaxUint32 || !powerOf2(n) {
-		return nil, errors.New("bad cluster machine size")
+		return nil, errors.New("bad cluster size")
 	}
 
 	addr := make([]netip.AddrPort, len(addresses))

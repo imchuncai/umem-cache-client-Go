@@ -175,6 +175,60 @@ func testClusterChangeAvailable(param TestParam) func(t *testing.T) {
 	}
 }
 
+func clusterMatch(deadline time.Time, addresses []string, config Config) error {
+	addrs, err := proto.ResolveAddresses(addresses)
+	if err != nil {
+		return fmt.Errorf("resolve addresses failed: %w", err)
+	}
+
+	client, err := NewCluster(addresses, config)
+	if err != nil {
+		return fmt.Errorf("new cluster failed: %w", err)
+	}
+	defer client.Close()
+
+	ch := make(chan Cluster)
+	go func() {
+		for {
+			cluster, err := client.Cluster()
+			if err == nil && cluster.Type.Normal() {
+				ch <- cluster
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case cluster := <-ch:
+		return cluster.Match(addrs)
+	}
+}
+
+func changeWarmUpCheck(t *testing.T, to []string, warm []string, check []string, config Config) {
+	deadline := DEADLINE()
+	err := AdminChangeCluster(deadline, to, config.TLSConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, address := range warm {
+		err := warmup(deadline, address, config.TLSConfig)
+		if err != nil {
+			t.Fatalf("warmup: %s failed: %v", address, err)
+		}
+	}
+
+	err = clusterMatch(deadline, check, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func _testClusterAdjust(t *testing.T, from []string, to []string, param TestParam) {
 	machines, err := RunAndInitCluster(param, 8, from)
 	if err != nil {
@@ -182,22 +236,7 @@ func _testClusterAdjust(t *testing.T, from []string, to []string, param TestPara
 	}
 	defer machines.Stop()
 
-	deadline := DEADLINE()
-
-	err = AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for {
-		err = AdminClusterMatch(deadline, to, param.Config.TLSConfig)
-		if err == nil {
-			return
-		}
-		if errIsIOTimeout(err) {
-			t.Fatal(err)
-		}
-	}
+	changeWarmUpCheck(t, to, nil, to, param.Config)
 }
 
 func testClusterAdjust(param TestParam) func(t *testing.T) {
@@ -211,23 +250,13 @@ func testClusterAdjust(param TestParam) func(t *testing.T) {
 
 func testClusterAdjustDuplicate(param TestParam) func(t *testing.T) {
 	return func(t *testing.T) {
-		deadline := DEADLINE()
-
 		from := ADDRESSES_ADMIN4()
 		to := ADDRESSES_ADMIN4()
 		dup := ADDRESSES_ADMIN8()[4]
 		to[1] = dup
 		to[3] = dup
 
-		err := AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = AdminClusterMatch(deadline, from, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
+		changeWarmUpCheck(t, to, nil, from, param.Config)
 	}
 }
 
@@ -251,17 +280,7 @@ func testClusterShrink(param TestParam) func(t *testing.T) {
 		}
 		defer machines.Stop()
 
-		deadline := DEADLINE()
-
-		err = AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = AdminClusterMatch(deadline, to, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
+		changeWarmUpCheck(t, to, nil, to, param.Config)
 	}
 }
 
@@ -302,38 +321,7 @@ func testClusterGrow(param TestParam) func(t *testing.T) {
 		}
 		defer machines.Stop()
 
-		deadline := DEADLINE()
-
-		err = AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		for _, address := range to[1:] {
-			err := warmup(deadline, address, param.Config.TLSConfig)
-			if err != nil {
-				t.Fatalf("warmup: %s failed: %v", address, err)
-			}
-		}
-
-		err = AdminClusterMatch(deadline, to, param.Config.TLSConfig)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func _testClusterGrowDuplicate(t *testing.T, from []string, to []string, param TestParam) {
-	deadline := DEADLINE()
-
-	err := AdminChangeCluster(deadline, from, to, param.Config.TLSConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = AdminClusterMatch(deadline, from, param.Config.TLSConfig)
-	if err != nil {
-		t.Fatal(err)
+		changeWarmUpCheck(t, to, to[1:], to, param.Config)
 	}
 }
 
@@ -343,7 +331,7 @@ func testClusterGrowDuplicate(param TestParam) func(t *testing.T) {
 		to := ADDRESSES_ADMIN8()
 		to[4] = from[0]
 
-		_testClusterGrowDuplicate(t, from, to, param)
+		changeWarmUpCheck(t, to, nil, from, param.Config)
 	}
 }
 
@@ -353,7 +341,7 @@ func testClusterGrowDuplicate2(param TestParam) func(t *testing.T) {
 		to := ADDRESSES_ADMIN8()
 		to[7] = to[4]
 
-		_testClusterGrowDuplicate(t, from, to, param)
+		changeWarmUpCheck(t, to, nil, from, param.Config)
 	}
 }
 

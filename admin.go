@@ -7,28 +7,32 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
 )
 
-func nap() {
-	time.Sleep(100 * time.Millisecond)
+func __leader(deadline time.Time, address string, config *tls.Config) (netip.AddrPort, error) {
+	conn, err := proto.Dial(deadline, address, config)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	return conn.Leader(deadline)
 }
 
 func verifyLeader(deadline time.Time, addrs []netip.AddrPort, config *tls.Config) error {
 	for i := 0; i < len(addrs); i++ {
 		addr := addrs[i]
-		leader, err := AdminLeader(deadline, addr.String(), config)
+		leader, err := __leader(deadline, addr.String(), config)
 		if err != nil {
 			if errIsIOTimeout(err) {
 				return fmt.Errorf("request leader failed: %w", err)
 			}
 
 			i--
-			nap()
 			continue
 		}
 		if leader != addrs[0] {
@@ -103,18 +107,14 @@ func growMachines(cluster Cluster, to []netip.AddrPort) ([]proto.Machine, error)
 	return machines, nil
 }
 
-// Note: change may not really happen, you can check by AdminClusterMatch()
-func AdminChangeCluster(deadline time.Time, fromAddresses, toAddresses []string, config *tls.Config) error {
-	_, err := proto.ResolveAddresses(fromAddresses)
-	if err != nil {
-		return fmt.Errorf("resolve from addresses failed: %w", err)
-	}
+// Note: we don't know wether the change is happened or not, caller should always check it.
+func AdminChangeCluster(deadline time.Time, toAddresses []string, config *tls.Config) error {
 	toAddrs, err := proto.ResolveAddresses(toAddresses)
 	if err != nil {
 		return fmt.Errorf("resolve to addresses failed: %w", err)
 	}
 
-	cluster, err := cluster(deadline, fromAddresses, config)
+	cluster, err := cluster(deadline, toAddresses, config)
 	if err != nil {
 		return err
 	}
@@ -145,41 +145,4 @@ func AdminChangeCluster(deadline time.Time, fromAddresses, toAddresses []string,
 		return fmt.Errorf("change cluster failed: %w", err)
 	}
 	return nil
-}
-
-func AdminClusterMatch(deadline time.Time, addresses []string, config *tls.Config) error {
-	addrs, err := proto.ResolveAddresses(addresses)
-	if err != nil {
-		return fmt.Errorf("resolve addresses failed: %w", err)
-	}
-
-	for {
-		cluster, err := cluster(deadline, addresses, config)
-		if err != nil {
-			return err
-		}
-
-		if cluster.Type.Normal() {
-			return cluster.Match(addrs)
-		}
-	}
-}
-
-func AdminLeader(deadline time.Time, address string, config *tls.Config) (netip.AddrPort, error) {
-	conn, err := proto.Dial(deadline, address, config)
-	if err != nil {
-		return netip.AddrPort{}, fmt.Errorf("dial failed: %w", err)
-	}
-	defer conn.Close()
-
-	return conn.Leader(deadline)
-}
-
-func AdminCluster(deadline time.Time, address string, config *tls.Config) (Cluster, error) {
-	addr, err := net.ResolveTCPAddr("tcp6", address)
-	if err != nil {
-		return Cluster{}, fmt.Errorf("resolve addresses failed: %w", err)
-	}
-
-	return __cluster(deadline, addr.AddrPort(), config)
 }

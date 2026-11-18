@@ -129,7 +129,6 @@ type Machine struct {
 
 func (m *Machine) Ping(deadline time.Time, config *tls.Config) error {
 	for {
-		nap()
 		conn, err := proto.Dial(deadline, m.addr, config)
 		if err == nil {
 			conn.Close()
