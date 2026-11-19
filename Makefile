@@ -63,6 +63,9 @@ test-src:
 	$(MAKE) -s -C $(src) RAFT=1 TLS=1 DEBUG=1 TEST_VOTE_WITH_CHANGE_LOG=1
 	go test -timeout=1m -failfast -p=1 -v -run=TestVoteWithChangeLog -args $(src)/umem-cache 1 1
 
+test-murmur3:
+	go test -run=FuzzMurmurHash3_x64_128 -fuzz=FuzzMurmurHash3_x64_128 -fuzztime=5s
+
 test-exe:
 	$(call run-test,$(EXE),$(RAFT),$(TLS),$(DEBUG))
 

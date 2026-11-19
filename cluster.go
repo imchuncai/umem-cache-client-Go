@@ -8,18 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"os"
 	"slices"
 	"sync/atomic"
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
-	"github.com/twmb/murmur3"
 )
 
-// annoying stupid DeadlineExceeded
-func errIsIOTimeout(err error) bool {
-	return errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
+func deadlineExceeded(deadline time.Time) bool {
+	return time.Now().After(deadline)
 }
 
 type Cluster struct {
@@ -54,7 +51,7 @@ func NewCluster(addresses []string, config Config) (*ClusterClient, error) {
 	var _threadNR uint32
 	for _, m := range cluster.Machines {
 		_threadNR, err = threadNR(deadline, m.Addr.String(), config.TLSConfig)
-		if err == nil || errIsIOTimeout(err) {
+		if err == nil || deadlineExceeded(deadline) {
 			break
 		}
 	}
@@ -117,7 +114,7 @@ func (c *ClusterClient) do(f func(ctx context.Context, deadline time.Time, clien
 
 // Note: get is guaranteed called at most once
 func (c *ClusterClient) GetOrSet(key []byte, get proto.FallbackGetFunc) (val []byte, err error) {
-	h1, h2 := murmur3.SeedSum128(74, 74, key)
+	h1, h2 := murmurHash3_x64_128(key, 74)
 	err = c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
 		val, err = client.GetOrSet(ctx, deadline, c.threadNR, key, h1, h2, get)
 		return err
@@ -126,7 +123,7 @@ func (c *ClusterClient) GetOrSet(key []byte, get proto.FallbackGetFunc) (val []b
 }
 
 func (c *ClusterClient) Del(key []byte) error {
-	h1, h2 := murmur3.SeedSum128(74, 74, key)
+	h1, h2 := murmurHash3_x64_128(key, 74)
 	return c.do(func(ctx context.Context, deadline time.Time, client *_ClusterClient) error {
 		return client.Del(ctx, deadline, c.threadNR, key, h1, h2)
 	})

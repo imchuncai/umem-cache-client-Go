@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/imchuncai/umem-cache-client-Go/proto"
-	"github.com/twmb/murmur3"
 )
 
 type Client struct {
@@ -26,6 +25,11 @@ func threadNR(deadline time.Time, address string, config *tls.Config) (uint32, e
 		return 0, fmt.Errorf("dial: %s thread 0 failed: %w", address, err)
 	}
 	defer conn.Close()
+
+	err = conn.SetDeadline(deadline)
+	if err != nil {
+		return 0, fmt.Errorf("set deadline failed: %w", err)
+	}
 
 	stats := conn.Stats()
 	if stats.Error != nil {
@@ -52,7 +56,7 @@ func New(address string, config Config) (*Client, error) {
 }
 
 func (c *Client) dispatch(key []byte) *thread {
-	h1, _ := murmur3.SeedSum128(74, 74, key)
+	h1, _ := murmurHash3_x64_128(key, 74)
 	hi, _ := bits.Mul64(h1, uint64(len(c.threads)))
 	return &c.threads[hi]
 }

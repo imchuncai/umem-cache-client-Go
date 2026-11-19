@@ -134,7 +134,7 @@ func (m *Machine) Ping(deadline time.Time, config *tls.Config) error {
 			conn.Close()
 			return nil
 		}
-		if errIsIOTimeout(err) {
+		if deadlineExceeded(deadline) {
 			return err
 		}
 	}

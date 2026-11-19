@@ -58,7 +58,7 @@ func cluster(deadline time.Time, addresses []string, config *tls.Config) (Cluste
 			if err == nil {
 				break
 			}
-			if errIsIOTimeout(err) {
+			if deadlineExceeded(deadline) {
 				return Cluster{}, err
 			}
 		}
@@ -67,7 +67,7 @@ func cluster(deadline time.Time, addresses []string, config *tls.Config) (Cluste
 		if err == nil {
 			return cluster, nil
 		}
-		if errIsIOTimeout(err) {
+		if deadlineExceeded(deadline) {
 			return Cluster{}, err
 		}
 	}
@@ -85,7 +85,7 @@ func clusterAuthority(deadline time.Time, addresses []string, config *tls.Config
 		if err == nil {
 			return cluster, authority, nil
 		}
-		if errIsIOTimeout(err) {
+		if deadlineExceeded(deadline) {
 			return Cluster{}, nil, err
 		}
 	}

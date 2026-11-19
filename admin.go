@@ -28,7 +28,7 @@ func verifyLeader(deadline time.Time, addrs []netip.AddrPort, config *tls.Config
 		addr := addrs[i]
 		leader, err := __leader(deadline, addr.String(), config)
 		if err != nil {
-			if errIsIOTimeout(err) {
+			if deadlineExceeded(deadline) {
 				return fmt.Errorf("request leader failed: %w", err)
 			}
 
